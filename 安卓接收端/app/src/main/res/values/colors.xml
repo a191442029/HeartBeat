@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 状态点颜色: 绿=WS实时 黄=HTTP轮询 灰=数据超时 红=设备断连 -->
+    <color name="dot_ws">#4CAF50</color>
+    <color name="dot_poll">#FFC107</color>
+    <color name="dot_timeout">#9E9E9E</color>
+    <color name="dot_off">#F44336</color>
+    <color name="bubble_bg">#CC1B1B1B</color>
+    <color name="text_on_bubble">#FFFFFF</color>
+</resources>

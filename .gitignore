@@ -1,0 +1,29 @@
+# ---- 敏感/个人配置 (不入库) ----
+config.ini
+安卓接收端/local.properties
+安卓接收端/keystore.properties
+*.jks
+*.keystore
+
+# ---- 日志与运行数据 ----
+log/
+*.log
+heart_rate_data/
+
+# ---- 构建产物 (exe/APK 走 GitHub Releases 发布) ----
+build/
+dist/
+_dist/
+__pycache__/
+*.pyc
+version.json
+version.txt
+安卓接收端/build/
+安卓接收端/app/build/
+安卓接收端/.gradle/
+安卓接收端/.idea/
+安卓接收端/*.apk
+
+# ---- 本地备份与内部工作文件 ----
+_backup/
+优化任务2026年9月16日.md
