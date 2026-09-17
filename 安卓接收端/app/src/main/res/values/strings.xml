@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">心率悬浮窗</string>
+    <string name="hint_server">电脑Tailscale IP（在HRMLink的Tailscale页可查看）</string>
+    <string name="hint_port">端口（默认 8765）</string>
+    <string name="poll_only">仅轮询模式（WS异常时使用）</string>
+    <string name="btn_overlay">1. 授权悬浮窗</string>
+    <string name="btn_battery">2. 电池优化白名单</string>
+    <string name="btn_start">启动悬浮窗</string>
+    <string name="btn_stop">停止</string>
+    <string name="status_title">运行状态</string>
+    <string name="channel_name">心率监听</string>
+    <string name="channel_desc">保持连接并接收心率数据</string>
+    <string name="btn_settings">⚙ 设置</string>
+    <string name="btn_monitor_start">开始监测</string>
+    <string name="btn_monitor_stop">停止监测</string>
+    <string name="btn_float_on">悬浮窗: 开</string>
+    <string name="btn_float_off">悬浮窗: 关</string>
+    <string name="btn_save">保存设置</string>
+</resources>

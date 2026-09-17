@@ -1,0 +1,22 @@
+// HRBubble 根构建脚本
+// AGP 8.4.2 + Gradle 8.7 (见 gradle/wrapper/gradle-wrapper.properties)
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.4.2'
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+task clean(type: Delete) {
+    delete rootProject.buildDir
+}

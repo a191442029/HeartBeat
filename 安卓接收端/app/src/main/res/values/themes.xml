@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 仅用系统框架主题, 零第三方依赖 -->
+    <style name="AppTheme" parent="android:Theme.Material.Light.DarkActionBar"/>
+</resources>
