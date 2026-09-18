@@ -7,4 +7,6 @@
     <color name="dot_off">#F44336</color>
     <color name="bubble_bg">#CC1B1B1B</color>
     <color name="text_on_bubble">#FFFFFF</color>
+    <!-- 自适应图标背景: HRBubble 接收端 浅白 -->
+    <color name="ic_launcher_bg">#FAFAFA</color>
 </resources>

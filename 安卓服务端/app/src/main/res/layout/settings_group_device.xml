@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:layout_marginBottom="12dp"
+    android:padding="10dp"
+    android:background="#232630">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/group_device"
+        android:textSize="15sp"
+        android:textStyle="bold"
+        android:textColor="@color/accent"/>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="6dp"
+        android:layout_marginBottom="8dp"
+        android:background="#3A3D47"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/txt_dev_saved"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="13sp"
+            android:textColor="@color/text_primary"
+            android:singleLine="true"
+            android:ellipsize="end"/>
+
+        <Button
+            android:id="@+id/btn_disconnect"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/btn_disconnect"/>
+
+        <Button
+            android:id="@+id/btn_scan"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="8dp"
+            android:text="@string/btn_scan"/>
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/txt_scan_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:textSize="12sp"
+        android:textColor="#999999"/>
+
+    <!-- 可用的设备: 扫描结果实时逐行刷新(LinearLayout动态行, 避开ScrollView嵌套列表冲突), ★=已收藏 -->
+    <TextView
+        android:id="@+id/txt_scan_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:textColor="@color/text_primary"
+        android:text="可用的设备:"/>
+
+    <LinearLayout
+        android:id="@+id/list_scan_devices"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginTop="4dp"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="8dp">
+
+        <Button
+            android:id="@+id/btn_add_favorite"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="★ 收藏当前设备"/>
+
+        <Button
+            android:id="@+id/btn_save_connect"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="8dp"
+            android:text="@string/btn_save_connect"/>
+    </LinearLayout>
+
+    <!-- 收藏的设备: 对齐 EXE DevCtrl 收藏区, 点击选中/移除 -->
+    <TextView
+        android:id="@+id/txt_fav_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:textColor="@color/accent"
+        android:text="★ 收藏的设备 (0):"/>
+
+    <LinearLayout
+        android:id="@+id/list_fav_devices"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginTop="4dp"/>
+
+    <CheckBox
+        android:id="@+id/chk_auto_connect"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="@string/chk_auto_connect"
+        android:textColor="@color/text_primary"/>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:textSize="12sp"
+        android:textColor="#999999"
+        android:text="保存并连接/收藏后立即自动连接; 扫描需要定位权限; 断线自动重连顺序: 最后连接→收藏设备(连续3轮全失败自动停止)"/>
+</LinearLayout>

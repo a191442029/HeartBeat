@@ -1,0 +1,22 @@
+// HRServer 根构建脚本 (对标 EXE 项目的安卓服务端, 1:1 复刻 HRMLink 功能)
+// AGP 8.4.2 + Gradle 8.7, 模板复用 安卓接收端/ 已验证的构建环境
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.4.2'
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+task clean(type: Delete) {
+    delete rootProject.buildDir
+}

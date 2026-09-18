@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Bark 推送级别(下标即取值, 见 SettingsActivity BARK_LEVEL_VALUES) -->
+    <string-array name="bark_levels">
+        <item>默认(不传)</item>
+        <item>主动弹窗 active</item>
+        <item>时效性 timeSensitive</item>
+        <item>被动轻提示 passive</item>
+        <item>紧急-无视静音 critical</item>
+    </string-array>
+
+    <!-- ntfy 优先级(下标0=不传, 1~5) -->
+    <string-array name="ntfy_priorities">
+        <item>默认(不传)</item>
+        <item>1 最小</item>
+        <item>2 低</item>
+        <item>3 普通</item>
+        <item>4 高</item>
+        <item>5 紧急-连续提醒</item>
+    </string-array>
+</resources>

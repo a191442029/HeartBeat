@@ -1,0 +1,596 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:layout_marginBottom="12dp"
+    android:padding="10dp"
+    android:background="#232630">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/group_channels"
+        android:textSize="15sp"
+        android:textStyle="bold"
+        android:textColor="@color/accent"/>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="6dp"
+        android:layout_marginBottom="8dp"
+        android:background="#3A3D47"/>
+
+    <!-- MeoW -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:textColor="@color/text_primary"
+        android:text="MeoW (鸿蒙)"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginTop="2dp">
+
+        <CheckBox
+            android:id="@+id/chk_meow_enabled"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/chk_enabled"
+            android:textColor="@color/text_primary"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="8dp"
+            android:textSize="14sp"
+            android:textColor="@color/text_primary"
+            android:text="昵称:"/>
+
+        <EditText
+            android:id="@+id/edit_meow_nickname"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginLeft="6dp"
+            android:textSize="14sp"
+            android:hint="MeoW App注册的昵称; 多台用逗号分隔"
+            android:inputType="text"
+            android:singleLine="true"/>
+
+        <Button
+            android:id="@+id/btn_test_meow"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="6dp"
+            android:text="@string/btn_test"/>
+    </LinearLayout>
+
+    <!-- Bark -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:textColor="@color/text_primary"
+        android:text="Bark (iOS)"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginTop="2dp">
+
+        <CheckBox
+            android:id="@+id/chk_bark_enabled"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/chk_enabled"
+            android:textColor="@color/text_primary"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="8dp"
+            android:textSize="14sp"
+            android:textColor="@color/text_primary"
+            android:text="Key:"/>
+
+        <EditText
+            android:id="@+id/edit_bark_key"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1.4"
+            android:layout_marginLeft="6dp"
+            android:textSize="14sp"
+            android:hint="Bark App显示的推送Key; 多台用逗号分隔"
+            android:inputType="text"
+            android:singleLine="true"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="8dp"
+            android:textSize="14sp"
+            android:textColor="@color/text_primary"
+            android:text="服务器:"/>
+
+        <EditText
+            android:id="@+id/edit_bark_server"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginLeft="6dp"
+            android:textSize="14sp"
+            android:hint="默认api.day.app, 自建填地址"
+            android:inputType="text"
+            android:singleLine="true"/>
+
+        <Button
+            android:id="@+id/btn_test_bark"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="6dp"
+            android:text="@string/btn_test"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginTop="4dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="14sp"
+            android:textColor="@color/text_primary"
+            android:text="推送级别:"/>
+
+        <Spinner
+            android:id="@+id/spin_bark_level"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginLeft="6dp"
+            android:entries="@array/bark_levels"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="10dp"
+            android:textSize="14sp"
+            android:textColor="@color/text_primary"
+            android:text="铃声:"/>
+
+        <EditText
+            android:id="@+id/edit_bark_sound"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginLeft="6dp"
+            android:textSize="14sp"
+            android:hint="可选: bell,alarm"
+            android:inputType="text"
+            android:singleLine="true"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="10dp"
+            android:textSize="14sp"
+            android:textColor="@color/text_primary"
+            android:text="分组:"/>
+
+        <EditText
+            android:id="@+id/edit_bark_group"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginLeft="6dp"
+            android:textSize="14sp"
+            android:hint="可选: 如HRM"
+            android:inputType="text"
+            android:singleLine="true"/>
+    </LinearLayout>
+
+    <!-- ntfy -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:textColor="@color/text_primary"
+        android:text="ntfy (安卓/全平台)"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginTop="2dp">
+
+        <CheckBox
+            android:id="@+id/chk_ntfy_enabled"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/chk_enabled"
+            android:textColor="@color/text_primary"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="8dp"
+            android:textSize="14sp"
+            android:textColor="@color/text_primary"
+            android:text="主题:"/>
+
+        <EditText
+            android:id="@+id/edit_ntfy_topic"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1.4"
+            android:layout_marginLeft="6dp"
+            android:textSize="14sp"
+            android:hint="订阅主题(建议随机字符串); 多台用逗号分隔"
+            android:inputType="text"
+            android:singleLine="true"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="8dp"
+            android:textSize="14sp"
+            android:textColor="@color/text_primary"
+            android:text="服务器:"/>
+
+        <EditText
+            android:id="@+id/edit_ntfy_server"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginLeft="6dp"
+            android:textSize="14sp"
+            android:hint="默认ntfy.sh, 自建填地址"
+            android:inputType="text"
+            android:singleLine="true"/>
+
+        <Button
+            android:id="@+id/btn_test_ntfy"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="6dp"
+            android:text="@string/btn_test"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginTop="4dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="14sp"
+            android:textColor="@color/text_primary"
+            android:text="优先级:"/>
+
+        <Spinner
+            android:id="@+id/spin_ntfy_priority"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginLeft="6dp"
+            android:entries="@array/ntfy_priorities"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="10dp"
+            android:textSize="14sp"
+            android:textColor="@color/text_primary"
+            android:text="标签:"/>
+
+        <EditText
+            android:id="@+id/edit_ntfy_tags"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginLeft="6dp"
+            android:textSize="14sp"
+            android:hint="可选: warning,heart"
+            android:inputType="text"
+            android:singleLine="true"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="10dp"
+            android:textSize="14sp"
+            android:textColor="@color/text_primary"
+            android:text="令牌:"/>
+
+        <EditText
+            android:id="@+id/edit_ntfy_token"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginLeft="6dp"
+            android:textSize="14sp"
+            android:hint="可选: tk_..."
+            android:inputType="textPassword"
+            android:singleLine="true"/>
+    </LinearLayout>
+
+    <!-- InfluxDB -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:textColor="@color/text_primary"
+        android:text="InfluxDB 数据落库"/>
+
+    <CheckBox
+        android:id="@+id/chk_influx_enabled"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:text="@string/chk_enabled"
+        android:textColor="@color/text_primary"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginTop="2dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="14sp"
+            android:textColor="@color/text_primary"
+            android:text="地址:"/>
+
+        <EditText
+            android:id="@+id/edit_influx_url"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1.6"
+            android:layout_marginLeft="6dp"
+            android:textSize="14sp"
+            android:hint="例如: http://192.168.1.100:8086"
+            android:inputType="text"
+            android:singleLine="true"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="8dp"
+            android:textSize="14sp"
+            android:textColor="@color/text_primary"
+            android:text="令牌:"/>
+
+        <EditText
+            android:id="@+id/edit_influx_token"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1.4"
+            android:layout_marginLeft="6dp"
+            android:textSize="14sp"
+            android:inputType="textPassword"
+            android:singleLine="true"/>
+
+        <Button
+            android:id="@+id/btn_test_influx"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="6dp"
+            android:text="@string/btn_test_influx"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginTop="4dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="14sp"
+            android:textColor="@color/text_primary"
+            android:text="组织:"/>
+
+        <EditText
+            android:id="@+id/edit_influx_org"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginLeft="6dp"
+            android:textSize="14sp"
+            android:hint="例如: my-org"
+            android:inputType="text"
+            android:singleLine="true"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="10dp"
+            android:textSize="14sp"
+            android:textColor="@color/text_primary"
+            android:text="存储桶:"/>
+
+        <EditText
+            android:id="@+id/edit_influx_bucket"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginLeft="6dp"
+            android:textSize="14sp"
+            android:hint="例如: heart_rate_data"
+            android:inputType="text"
+            android:singleLine="true"/>
+    </LinearLayout>
+
+    <!-- MQTT -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:textColor="@color/text_primary"
+        android:text="MQTT (Home Assistant)"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginTop="2dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="14sp"
+            android:textColor="@color/text_primary"
+            android:text="服务器:"/>
+
+        <EditText
+            android:id="@+id/edit_mqtt_broker"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1.2"
+            android:layout_marginLeft="6dp"
+            android:textSize="14sp"
+            android:hint="例如: 192.168.1.100"
+            android:inputType="text"
+            android:singleLine="true"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="8dp"
+            android:textSize="14sp"
+            android:textColor="@color/text_primary"
+            android:text="端口:"/>
+
+        <EditText
+            android:id="@+id/edit_mqtt_port"
+            android:layout_width="80dp"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="6dp"
+            android:textSize="14sp"
+            android:hint="1883"
+            android:inputType="number"
+            android:singleLine="true"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="10dp"
+            android:textSize="14sp"
+            android:textColor="@color/text_primary"
+            android:text="用户名:"/>
+
+        <EditText
+            android:id="@+id/edit_mqtt_username"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="0.8"
+            android:layout_marginLeft="6dp"
+            android:textSize="14sp"
+            android:hint="(可选)"
+            android:inputType="text"
+            android:singleLine="true"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="10dp"
+            android:textSize="14sp"
+            android:textColor="@color/text_primary"
+            android:text="密码:"/>
+
+        <EditText
+            android:id="@+id/edit_mqtt_password"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="0.8"
+            android:layout_marginLeft="6dp"
+            android:textSize="14sp"
+            android:hint="(可选)"
+            android:inputType="textPassword"
+            android:singleLine="true"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginTop="4dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="14sp"
+            android:textColor="@color/text_primary"
+            android:text="主题:"/>
+
+        <EditText
+            android:id="@+id/edit_mqtt_topic"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1.3"
+            android:layout_marginLeft="6dp"
+            android:textSize="14sp"
+            android:hint="homeassistant/sensor/heartrate/state"
+            android:inputType="text"
+            android:singleLine="true"/>
+
+        <CheckBox
+            android:id="@+id/chk_mqtt_discovery"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="10dp"
+            android:textSize="13sp"
+            android:textColor="@color/text_primary"
+            android:text="HA自动发现"/>
+
+        <EditText
+            android:id="@+id/edit_mqtt_discovery_topic"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1.2"
+            android:layout_marginLeft="6dp"
+            android:textSize="14sp"
+            android:hint="homeassistant/sensor/heartrate/config"
+            android:inputType="text"
+            android:singleLine="true"/>
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:textSize="12sp"
+        android:textColor="#999999"
+        android:text="MQTT仅保存参数, 由监测服务重启时生效"/>
+</LinearLayout>

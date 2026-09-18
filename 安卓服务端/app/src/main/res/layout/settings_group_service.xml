@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:layout_marginBottom="12dp"
+    android:padding="10dp"
+    android:background="#232630">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/group_service"
+        android:textSize="15sp"
+        android:textStyle="bold"
+        android:textColor="@color/accent"/>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="6dp"
+        android:layout_marginBottom="8dp"
+        android:background="#3A3D47"/>
+
+    <CheckBox
+        android:id="@+id/chk_srv_enabled"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="@color/text_primary"
+        android:text="启用心率数据服务(WS推送 + HTTP轮询)"/>
+
+    <!-- 悬浮窗开关(自主页迁入): 勾选显示浮动心率窗, 需"显示在应用上层"权限 -->
+    <CheckBox
+        android:id="@+id/chk_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="@color/text_primary"
+        android:text="显示心率悬浮窗(需“显示在应用上层”权限)"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginTop="6dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="14sp"
+            android:textColor="@color/text_primary"
+            android:text="绑定地址:"/>
+
+        <EditText
+            android:id="@+id/edit_srv_address"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginLeft="8dp"
+            android:textSize="14sp"
+            android:hint="auto=自动探测Tailscale IP, 或手填如 100.100.1.25"
+            android:inputType="text"
+            android:singleLine="true"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="10dp"
+            android:textSize="14sp"
+            android:textColor="@color/text_primary"
+            android:text="端口:"/>
+
+        <EditText
+            android:id="@+id/edit_srv_port"
+            android:layout_width="100dp"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="8dp"
+            android:textSize="14sp"
+            android:hint="8765"
+            android:inputType="number"
+            android:singleLine="true"/>
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:textSize="12sp"
+        android:textColor="#999999"
+        android:text="修改保存后由监测服务重启时生效; 无Tailscale时auto回退127.0.0.1仅本机可访问"/>
+</LinearLayout>

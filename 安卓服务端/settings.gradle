@@ -1,0 +1,2 @@
+rootProject.name = 'HRServer'
+include ':app'

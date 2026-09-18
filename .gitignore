@@ -28,5 +28,10 @@ version.txt
 _backup/
 优化任务2026年9月16日.md
 
-# ---- 安卓服务端 (开发中, 暂不入库) ----
-安卓服务端/
+# ---- 安卓服务端构建产物 (APK 走 GitHub Releases 发布) ----
+安卓服务端/build/
+安卓服务端/app/build/
+安卓服务端/.gradle/
+安卓服务端/.idea/
+安卓服务端/*.apk
+安卓服务端/*.iml

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">HRHub服务端</string>
+
+    <!-- 设置页 -->
+    <string name="settings_title">设置</string>
+    <string name="group_device">设备管理</string>
+    <string name="group_service">数据服务</string>
+    <string name="group_alarm">告警规则</string>
+    <string name="group_channels">推送渠道</string>
+    <string name="group_records">推送记录</string>
+    <string name="btn_scan">扫描设备</string>
+    <string name="btn_save_connect">保存并连接</string>
+    <string name="btn_disconnect">手动断开</string>
+    <string name="chk_auto_connect">服务启动自动连接最后设备</string>
+    <string name="btn_add_period">添加规则</string>
+    <string name="btn_del_period">删除</string>
+    <string name="btn_test">测试</string>
+    <string name="btn_test_influx">测试连接</string>
+    <string name="btn_view_records">查看推送记录</string>
+    <string name="btn_save_all">保存全部设置</string>
+    <string name="btn_records_refresh">刷新</string>
+    <string name="btn_records_clear">清空记录</string>
+    <string name="chk_enabled">启用</string>
+    <string name="records_empty">暂无推送记录\n(设备断连/心率告警/测试推送时自动记录, 最近50条)</string>
+</resources>

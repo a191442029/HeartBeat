@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg_dark">#1A1C23</color>
+    <color name="text_primary">#FFFFFF</color>
+    <color name="accent">#FF6B6B</color>
+    <color name="dot_green">#4CAF50</color>
+    <color name="dot_red">#F44336</color>
+    <color name="dot_timeout">#9E9E9E</color>
+    <!-- 自适应图标背景: HRHub 服务端 深蓝 -->
+    <color name="ic_launcher_bg">#1565C0</color>
+</resources>

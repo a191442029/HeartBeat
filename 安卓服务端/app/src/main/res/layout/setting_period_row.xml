@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:layout_marginBottom="4dp">
+
+    <CheckBox
+        android:id="@+id/chk_period_enabled"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="0.7"
+        android:textSize="12sp"/>
+
+    <EditText
+        android:id="@+id/edit_period_start"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginLeft="4dp"
+        android:textSize="13sp"
+        android:hint="22:00"
+        android:inputType="text"
+        android:singleLine="true"/>
+
+    <EditText
+        android:id="@+id/edit_period_end"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginLeft="4dp"
+        android:textSize="13sp"
+        android:hint="07:00"
+        android:inputType="text"
+        android:singleLine="true"/>
+
+    <EditText
+        android:id="@+id/edit_period_max"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginLeft="4dp"
+        android:textSize="13sp"
+        android:hint="0=不限"
+        android:inputType="number"
+        android:singleLine="true"/>
+
+    <EditText
+        android:id="@+id/edit_period_min"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginLeft="4dp"
+        android:textSize="13sp"
+        android:hint="0=不限"
+        android:inputType="number"
+        android:singleLine="true"/>
+
+    <EditText
+        android:id="@+id/edit_period_sustain"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginLeft="4dp"
+        android:textSize="13sp"
+        android:inputType="number"
+        android:singleLine="true"/>
+
+    <EditText
+        android:id="@+id/edit_period_cooldown"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginLeft="4dp"
+        android:textSize="13sp"
+        android:inputType="number"
+        android:singleLine="true"/>
+
+    <Button
+        android:id="@+id/btn_period_del"
+        android:layout_width="52dp"
+        android:layout_height="wrap_content"
+        android:layout_marginLeft="4dp"
+        android:textSize="11sp"
+        android:text="@string/btn_del_period"/>
+</LinearLayout>
