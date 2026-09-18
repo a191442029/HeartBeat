@@ -16,10 +16,10 @@ except Exception:
 import system_utils_ascii as system_utils
 system_utils.IS_FROZEN = IS_FROZEN = getattr(sys, 'frozen', False) or hasattr(sys, "_MEIPASS") or ("__compiled__" in globals())
 
-VER2 = (1, 0, 0, 0)
+VER2 = (1, 0, 1, 0)
 BINARY_BUILD = 1
 v1      = "v" + ".".join(map(str, VER2[0:3]))
-F_      = f"-beta.{BINARY_BUILD}"
+F_      = ""   # v1.0.1 起为正式版发布(无 -beta 后缀); Fvname 同时用作 release tag
 vname   = v1 + (F_ if IS_FROZEN else f"+code.{VER2[3]}")
 Fvname  = v1 +  F_
 __version__ = vname
@@ -99,7 +99,7 @@ else:
                 ,"version": 2
                 ,"VER2": VER2
                 ,"updateTime": "2026-09-18-12:00:00"
-                ,"gxjs": "HRMLink v1.0.0 首个公开版本"
+                ,"gxjs": "新增本地/远程报警声音, 时间显示改为EXE数据时间, 工具栏标题改HRBubble并显示本地日期时间"
                 ,"index": f"https://github.com/a191442029/HeartBeat/releases/{Fvname}"
                 ,"download": f"https://github.com/a191442029/HeartBeat/releases/download/{Fvname}/HRMLink.exe"
             }

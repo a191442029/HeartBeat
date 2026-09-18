@@ -42,6 +42,7 @@ public class SettingsActivity extends Activity {
 
     private EditText editSrvAddress, editSrvPort;
     private EditText editPushMax, editPushMin, editPushDuration, editPushCooldown;
+    private CheckBox chkLocalAlarm;
     private CheckBox chkIrrEnabled;
     private EditText editIrrWindow, editIrrSd, editIrrJump, editIrrRatio, editIrrRest, editIrrSustain, editIrrCooldown;
     private EditText editMeowNick, editBarkKey, editBarkServer, editBarkSound, editBarkGroup;
@@ -91,6 +92,7 @@ public class SettingsActivity extends Activity {
 
         findViewById(R.id.btn_add_period).setOnClickListener(v -> addPeriodRow(null));
         findViewById(R.id.btn_save_all).setOnClickListener(v -> saveAll());
+        findViewById(R.id.btn_check_update).setOnClickListener(v -> checkUpdate());
 
         // ---- 悬浮窗开关(自主页迁入): 勾选→检查权限→显示; 取消→隐藏 ----
         final CheckBox chkOverlay = findViewById(R.id.chk_overlay);
@@ -130,6 +132,7 @@ public class SettingsActivity extends Activity {
         editPushMin = findViewById(R.id.edit_push_min);
         editPushDuration = findViewById(R.id.edit_push_duration);
         editPushCooldown = findViewById(R.id.edit_push_cooldown);
+        chkLocalAlarm = findViewById(R.id.chk_local_alarm);
         chkIrrEnabled = findViewById(R.id.chk_irr_enabled);
         editIrrWindow = findViewById(R.id.edit_irr_window);
         editIrrSd = findViewById(R.id.edit_irr_sd);
@@ -187,6 +190,9 @@ public class SettingsActivity extends Activity {
         editPushMin.setText(String.valueOf(Prefs.getInt(this, Prefs.PUSH_MIN_HR, 45)));
         editPushDuration.setText(String.valueOf(Prefs.getInt(this, Prefs.PUSH_ABNORMAL_DURATION, 600)));
         editPushCooldown.setText(String.valueOf(Prefs.getInt(this, Prefs.PUSH_COOLDOWN_SECONDS, 300)));
+
+        // 本地报警音(心率告警设备现场响铃, 默认开)
+        chkLocalAlarm.setChecked(Prefs.getBool(this, Prefs.LOCAL_ALARM_ENABLED, true));
 
         // 疑似心律不齐(8参数, 默认值对齐 Prefs 注释)
         chkIrrEnabled.setChecked(Prefs.getBool(this, Prefs.IRR_ENABLED, false));
@@ -463,6 +469,7 @@ public class SettingsActivity extends Activity {
         Prefs.putInt(this, Prefs.PUSH_MIN_HR, minHr);
         Prefs.putInt(this, Prefs.PUSH_ABNORMAL_DURATION, duration);
         Prefs.putInt(this, Prefs.PUSH_COOLDOWN_SECONDS, cooldown);
+        Prefs.putBool(this, Prefs.LOCAL_ALARM_ENABLED, chkLocalAlarm.isChecked());
         Prefs.putBool(this, Prefs.IRR_ENABLED, chkIrrEnabled.isChecked());
         Prefs.putInt(this, Prefs.IRR_WINDOW_SECONDS, irrWin);
         Prefs.putInt(this, Prefs.IRR_SD_THRESHOLD, irrSd);
@@ -767,6 +774,44 @@ public class SettingsActivity extends Activity {
             btn.setEnabled(true);
             Toast.makeText(this, (ok ? "InfluxDB 测试成功: " : "InfluxDB 测试失败: ") + msg,
                     Toast.LENGTH_LONG).show();
+        });
+    }
+
+    // ==================== 检查更新 ====================
+
+    /** 检查更新: GitHub releases latest → 弹窗确认 → 下载 → 跳系统安装器 */
+    private void checkUpdate() {
+        Toast.makeText(this, "正在检查更新...", Toast.LENGTH_SHORT).show();
+        UpdateChecker.check((hasUpdate, ver, url, notes, err) -> {
+            if (isFinishing()) return;
+            if (err != null) {
+                Toast.makeText(this, "检查失败: " + err, Toast.LENGTH_LONG).show();
+                return;
+            }
+            if (!hasUpdate) {
+                Toast.makeText(this, "已是最新版本 v" + BuildConfig.VERSION_NAME, Toast.LENGTH_SHORT).show();
+                return;
+            }
+            String msg = "当前版本: v" + BuildConfig.VERSION_NAME
+                    + "\n最新版本: v" + ver
+                    + "\n\n更新说明:\n" + (notes == null || notes.isEmpty() ? "—" : notes);
+            new android.app.AlertDialog.Builder(this)
+                    .setTitle("发现新版本")
+                    .setMessage(msg)
+                    .setPositiveButton("下载并安装", (d, w) -> {
+                        Toast.makeText(this, "开始下载 v" + ver + "...", Toast.LENGTH_SHORT).show();
+                        UpdateChecker.download(getApplicationContext(), url, ver, (apk, derr) -> {
+                            if (isFinishing()) return;
+                            if (derr != null) {
+                                Toast.makeText(this, "下载失败: " + derr, Toast.LENGTH_LONG).show();
+                                return;
+                            }
+                            Toast.makeText(this, "下载完成, 请确认安装", Toast.LENGTH_SHORT).show();
+                            UpdateChecker.install(getApplicationContext(), apk);
+                        });
+                    })
+                    .setNegativeButton("稍后再说", null)
+                    .show();
         });
     }
 

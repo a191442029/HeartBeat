@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider 共享路径: 更新APK下载目录(应用外部私有目录, 免存储权限) -->
+<paths>
+    <external-files-path name="update" path="update/"/>
+    <files-path name="update_int" path="update/"/>
+</paths>

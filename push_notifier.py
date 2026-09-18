@@ -35,6 +35,10 @@ HISTORY_MAX = 200
 _history_lock = threading.Lock()
 
 
+# 推送记录变化回调(UI层设置, 用于推送记录表自动刷新; 可能在后台线程被调用, UI层需自行保证线程安全)
+on_push_recorded = None
+
+
 def record_push(channel: str, title: str, msg: str, ok: bool, note: str):
     """追加一条推送结果并落盘(线程安全, 失败仅记日志)"""
     rec = {"time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -49,6 +53,13 @@ def record_push(channel: str, title: str, msg: str, ok: bool, note: str):
                 json.dump(records[-HISTORY_MAX:], f, ensure_ascii=False)
         except Exception as e:
             logger.error(f"保存推送记录失败: {e}")
+    # 通知UI层刷新推送记录表(回调异常不影响推送本身)
+    cb = on_push_recorded
+    if cb:
+        try:
+            cb()
+        except Exception as e:
+            logger.error(f"推送记录回调执行失败: {e}")
 
 
 def load_push_history() -> list:
@@ -303,6 +314,12 @@ class NotifierManager:
         self.irr_detector = None      # 疑似心律不齐检测器(可选启用)
         self.periods = []             # 自定义时段规则列表(每条含独立上下限/持续/冷却)
         self._hr_state = {}           # 各告警类别独立状态: "规则:high/low" -> {since,last}
+        # 报警音: 本地报警(EXE播放)与远程报警(接收端响铃)独立开关, 由UI勾选框控制
+        self.local_alarm_enabled = False
+        self.remote_alarm_enabled = False
+        self.alarm_seconds = 10       # 单次报警持续秒数(本地/远程共用)
+        # 告警钩子: 由MainWindow注入, 签名(seconds) -> None; 触发时回调(如通知接收端响铃)
+        self.on_alarm_hook = None
         self.load_config()
 
     def load_config(self):
@@ -346,6 +363,10 @@ class NotifierManager:
                     cooldown_seconds=gs("Push", "irregular_cooldown_minutes", 10, int, "-Push") * 60)
             else:
                 self.irr_detector = None
+            # 报警音开关与时长(本地响铃/远程接收端响铃, 由推送设置页勾选)
+            self.local_alarm_enabled = gs("Push", "alarm_local_enabled", False, bool, "-Push")
+            self.remote_alarm_enabled = gs("Push", "alarm_remote_enabled", False, bool, "-Push")
+            self.alarm_seconds = max(1, gs("Push", "alarm_seconds", 10, int, "-Push"))
             # 夜间时段监护旧配置(仅用于迁移到 periods 规则)
             self.night_enabled = gs("Push", "night_enabled", False, bool, "-Push")
             self.night_start = str(gs("Push", "night_start", "22:00", str, "-Push")).strip()
@@ -362,10 +383,24 @@ class NotifierManager:
     def enabled(self):
         return len(self.channels) > 0
 
+    def _fire_alarm_sound(self):
+        """报警音触发: 本地报警=EXE响铃(MCI); 远程报警=经on_alarm_hook通知WS服务推给接收端
+        设备断连/恢复不响铃, 仅心率类告警触发"""
+        try:
+            if self.local_alarm_enabled:
+                import alarm_sound
+                alarm_sound.play(self.alarm_seconds)
+            if self.remote_alarm_enabled and self.on_alarm_hook:
+                self.on_alarm_hook(self.alarm_seconds)
+        except Exception as e:
+            logger.error(f"报警音触发失败: {e}")
+
     def _push_all(self, title: str, msg: str):
         """后台线程向所有已启用渠道推送
         每渠道独立线程并行发送: 单渠道响应慢/超时不拖累其他渠道
         失败自动重试1次(间隔2秒): 兜底网络抖动与服务端瞬时故障(如MeoW偶发超时)"""
+        if title in ("心率告警", "疑似心律不齐"):
+            self._fire_alarm_sound()
         if not self.channels:
             return
 

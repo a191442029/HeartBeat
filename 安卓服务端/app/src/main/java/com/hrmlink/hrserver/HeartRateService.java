@@ -145,12 +145,19 @@ public class HeartRateService extends Service {
             }
         }
 
-        // 4. 告警引擎 → 推送渠道
+        // 4. 告警引擎 → 推送渠道 + 本地报警音
         alarm = new AlarmEngine(c);
         alarm.setAlarmListener(new AlarmEngine.AlarmListener() {
             @Override
             public void onAlarm(String title, String body, int kind) {
                 PushChannels.push(HeartRateService.this, title, body);
+                // 本地响铃: 仅心率类告警(过高/过低/疑似心律不齐), 设备断连/恢复不响(对齐EXE);
+                // 可在设置页"本地报警声音"开关控制, 默认开
+                if ((kind == AlarmEngine.KIND_HIGH || kind == AlarmEngine.KIND_LOW
+                        || kind == AlarmEngine.KIND_IRREGULAR)
+                        && Prefs.getBool(HeartRateService.this, Prefs.LOCAL_ALARM_ENABLED, true)) {
+                    AlarmPlayer.play(HeartRateService.this);
+                }
             }
         });
         alarm.start();
@@ -183,6 +190,7 @@ public class HeartRateService extends Service {
             alarm.stop();
             alarm = null;
         }
+        AlarmPlayer.stop();   // 服务停止时兜底停铃
         if (influx != null) {
             influx.stop();
             influx = null;

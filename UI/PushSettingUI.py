@@ -86,6 +86,17 @@ class PushSettingsUI(QWidget):
         common_row.addWidget(example_label, 2)
         main_layout.addLayout(common_row)
 
+        # ---- 报警声音 (本地电脑响铃 / 远程接收端APP响铃, 独立勾选) ----
+        sound_group = QGroupBox("报警声音 (心率过高/过低/疑似心律不齐触发, 音效: music/报警.mp3)")
+        sound_layout = QHBoxLayout()
+        sound_group.setLayout(sound_layout)
+        self.alarm_local = QCheckBox("本地报警 (电脑播放报警音)")
+        self.alarm_remote = QCheckBox("远程报警 (接收端APP同步播放报警音)")
+        sound_layout.addWidget(self.alarm_local)
+        sound_layout.addWidget(self.alarm_remote)
+        sound_layout.addStretch()
+        main_layout.addWidget(sound_group)
+
         # ---- MeoW 渠道 (鸿蒙) ----
         meow_group = QGroupBox("MeoW (鸿蒙)")
         meow_layout = QHBoxLayout()
@@ -288,6 +299,8 @@ class PushSettingsUI(QWidget):
         self.ntfy_tags.setText(self._get_set("ntfy_tags", "", str))
         self.ntfy_token.setText(self._get_set("ntfy_token", "", str))
         self.irr_enabled.setChecked(self._get_set("irregular_enabled", False, bool))
+        self.alarm_local.setChecked(self._get_set("alarm_local_enabled", False, bool))
+        self.alarm_remote.setChecked(self._get_set("alarm_remote_enabled", False, bool))
         self.irr_window.setValue(self._get_set("irregular_window_seconds", 60, int))
         self.irr_sd.setValue(self._get_set("irregular_sd_threshold", 5, int))
         self.irr_ratio.setValue(self._get_set("irregular_jump_ratio_pct", 30, int))
@@ -419,6 +432,8 @@ class PushSettingsUI(QWidget):
         self._up_set("ntfy_tags", self.ntfy_tags.text().strip())
         self._up_set("ntfy_token", self.ntfy_token.text().strip())
         self._up_set("irregular_enabled", self.irr_enabled.isChecked())
+        self._up_set("alarm_local_enabled", self.alarm_local.isChecked())
+        self._up_set("alarm_remote_enabled", self.alarm_remote.isChecked())
         self._up_set("irregular_window_seconds", self.irr_window.value())
         self._up_set("irregular_sd_threshold", self.irr_sd.value())
         self._up_set("irregular_jump_ratio_pct", self.irr_ratio.value())

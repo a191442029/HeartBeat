@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">心率悬浮窗</string>
+    <string name="app_name">HRBubble</string>
+    <string name="toolbar_title">HRBubble</string>
     <string name="hint_server">电脑Tailscale IP（在HRMLink的Tailscale页可查看）</string>
     <string name="hint_port">端口（默认 8765）</string>
     <string name="poll_only">仅轮询模式（WS异常时使用）</string>

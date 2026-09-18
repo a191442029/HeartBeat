@@ -82,12 +82,14 @@ class WebPushServer:
         self.clients = set()  # 当前连接的WS客户端
         # 最新状态快照(HTTP轮询/WS新连接共用)
         # info: 附加状态文本(如智能重连进度), 空串=无附加状态
+        # alarm: 远程报警标志(true=接收端循环响铃, seconds后自动复位; 接收端收到false立即停铃)
         self._state = {
             "heart_rate": 0,
             "timestamp": "",
             "status": "disconnected",
             "device": self.device_name,
             "info": "",
+            "alarm": False,
         }
 
     # ---------- 生命周期 ----------
@@ -157,6 +159,26 @@ class WebPushServer:
             return  # 未变化不重复广播
         self._state = dict(self._state, info=info or "")
         self._schedule_broadcast()
+
+    def trigger_alarm(self, seconds=10):
+        """远程报警: 快照alarm置true并广播(接收端开始响铃), seconds后自动复位false(接收端停铃)
+        Qt主线程调用(qasync下即loop线程), ensure_future可直接调度"""
+        self._state = dict(self._state, alarm=True)
+        self._schedule_broadcast()
+        try:
+            asyncio.ensure_future(self._alarm_auto_clear(seconds))
+        except RuntimeError:
+            self._state = dict(self._state, alarm=False)  # 无事件循环则不进入报警态
+            self._schedule_broadcast()
+
+    async def _alarm_auto_clear(self, seconds):
+        """报警窗口到期: alarm复位false并广播, 接收端收到后停止响铃"""
+        try:
+            await asyncio.sleep(seconds)
+        finally:
+            if self._state.get("alarm"):
+                self._state = dict(self._state, alarm=False)
+                self._schedule_broadcast()
 
     def _schedule_broadcast(self):
         if self.running and self.clients:

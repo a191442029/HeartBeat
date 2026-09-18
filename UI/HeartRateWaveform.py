@@ -72,11 +72,9 @@ class HeartRateWaveform(QWidget):
         self.avg_line = None  # 平均值线
         self.current_hr_text = None  # 当前心率文本
         
-        # 设置标题 - 更大更醒目
-        self.ax.set_title('实时心率监测', fontsize=14, fontweight='bold', 
-                          pad=15, color='#2c3e50')
-        self.ax.set_xlabel('时间', fontsize=11, color='#5a6c7d')
-        self.ax.set_ylabel('心率 (BPM)', fontsize=11, color='#5a6c7d')
+        # 标题由外层"实时心率监测"分组框提供, 图内不再重复显示
+        # 不设轴标题: 刻度已标明"-60秒/现在"与心率数值, "BPM"单位在"当前/平均"文本中体现;
+        # 去掉两侧轴标题后绘图区可以几乎撑满画布, 与下方心率日志框左右边缘对齐
         
         # 优化网格 - 更精细
         self.ax.grid(True, linestyle=':', alpha=0.3, color='#bdc3c7', linewidth=0.8)
@@ -89,13 +87,18 @@ class HeartRateWaveform(QWidget):
         self.ax.spines['bottom'].set_color('#bdc3c7')
         self.ax.tick_params(colors='#5a6c7d', labelsize=9)
         
-        # 调整布局 - 减少边距
-        self.figure.tight_layout(pad=1.5)
+        # 固定绘图区边距(不用tight_layout, 它会为轴标题预留边距):
+        # 左右几乎贴边, 与下方心率日志框左右边缘垂直对齐
+        self.figure.subplots_adjust(left=0.045, right=0.995, top=0.97, bottom=0.10)
         
         layout.addWidget(self.canvas)
-        
+
         # 初始化图表
         self.update_plot()
+
+    def y_axis_left_px(self):
+        """Y轴(绘图区左边缘)相对画布左侧的像素偏移, 供外部组件(如心率日志框)对齐"""
+        return int(self.ax.get_position().x0 * self.canvas.width())
     
     def add_heart_rate(self, heart_rate):
         """
@@ -213,7 +216,8 @@ class HeartRateWaveform(QWidget):
             # 更新图例
             self.ax.legend(loc='upper left', fontsize=9, framealpha=0.9)
         else:
-            self.ax.set_ylim(40, 200)
+            # 无有效数据时的默认范围: 覆盖静息/正常心率区间即可, 避免空图看起来空旷
+            self.ax.set_ylim(40, 120)
         
         # 设置X轴范围
         self.ax.set_xlim(0, self.max_points)

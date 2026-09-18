@@ -25,6 +25,7 @@ public final class Prefs {
     public static final String SRV_PORT = "srv_port";         // 默认 8765
 
     // ---- [Push] 告警规则 ----
+    public static final String LOCAL_ALARM_ENABLED = "local_alarm_enabled";        // 心率告警本地响铃开关, 默认true
     public static final String PUSH_MAX_HR = "push_max_hr";                        // 上限, 0=不检测, 默认150
     public static final String PUSH_MIN_HR = "push_min_hr";                        // 下限, 0=不检测, 默认45
     public static final String PUSH_ABNORMAL_DURATION = "push_abnormal_duration";  // 超限持续秒数, 默认600

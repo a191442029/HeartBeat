@@ -1,7 +1,7 @@
 from PyQt5.QtWidgets import (QVBoxLayout, QLabel, QWidget
     ,QGroupBox, QHBoxLayout, QPushButton, QCheckBox, QListWidget
     ,QSpinBox, QTextEdit, QMessageBox,  QFileDialog, QListWidgetItem)
-from PyQt5.QtCore import pyqtSignal, QTimer, Qt
+from PyQt5.QtCore import pyqtSignal, QTimer, Qt, QEvent
 
 from bleak.exc import BleakDeviceNotFoundError, BleakError
 from .basicwidgets import CheackBox_, group_layout
@@ -29,43 +29,62 @@ class HeartRateMonitorUI(QWidget):
         self._init_ui()
 
     def _init_ui(self):
-        layout = QVBoxLayout(self)
+        # 左右分栏: 左列(波形+日志+保存按钮) 约60%, 右列(推送记录, 含底部刷新/清空) 约40%
+        layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)  # 页面级边距由主窗口统一包装提供
         layout.setSpacing(8)
 
-        # 数据显示区域
-        data_group = QGroupBox("心率数据与波形")
-        data_layout = QHBoxLayout()  # 水平布局：左数据右波形
-        data_layout.setSpacing(8)
-
-        # === 左侧：心率数据区域 ===
-        left_panel = QWidget()
+        # === 左列：波形图(上) + 心率日志(下) + 保存按钮 ===
+        data_group = QGroupBox("实时心率监测")
         left_layout = QVBoxLayout()
-        left_layout.setContentsMargins(0, 0, 0, 0)
+        # 内边距与右侧"推送记录"分组框统一, 保证两框内容起始位置和底部按钮行对齐
+        left_layout.setContentsMargins(8, 8, 8, 8)
+        left_layout.setSpacing(8)
 
-        # 心率数据记录
+        # 波形图
+        from .HeartRateWaveform import HeartRateWaveform
+        self.waveform = HeartRateWaveform(max_points=60)
+        left_layout.addWidget(self.waveform, 65)  # 波形约占65%
+
+        # 心率数据记录: 左侧缩进与波形图Y轴垂直对齐(边距随画布宽度动态同步)
         self.heart_rate_display = QTextEdit()
         self.heart_rate_display.setReadOnly(True)
         self.heart_rate_display.setMinimumWidth(250)  # 设置最小宽度
-        left_layout.addWidget(self.heart_rate_display)
+        self._log_row = QHBoxLayout()
+        self._log_row.setContentsMargins(30, 0, 0, 0)  # 初始值, 显示后由eventFilter按Y轴位置校准
+        self._log_row.addWidget(self.heart_rate_display)
+        left_layout.addLayout(self._log_row, 35)  # 日志区约占35%
 
         # 数据保存按钮
         self.save_button = QPushButton("保存数据到文件")
         self.save_button.clicked.connect(self.save_data)
         left_layout.addWidget(self.save_button)
 
-        left_panel.setLayout(left_layout)
-        data_layout.addWidget(left_panel, 1)  # 比例1
+        data_group.setLayout(left_layout)
+        layout.addWidget(data_group, 3)  # 左右约60:40
 
-        # === 右侧：波形图区域 ===
-        from .HeartRateWaveform import HeartRateWaveform
+        # === 右列：推送记录(原"推送记录"标签页组件, 刷新/清空在组件底部) ===
+        # 包一层"推送记录"分组框, 标题高度与左侧"实时心率监测"一致, 两栏内容起始位置对齐
+        from .PushHistoryUI import PushHistoryUI
+        self.push_history_ui = PushHistoryUI()
+        push_group = QGroupBox("推送记录")
+        push_group_lay = QVBoxLayout()
+        # 内边距与左侧"实时心率监测"分组框统一(8px), 底部刷新/清空按钮行随之对齐
+        push_group_lay.setContentsMargins(8, 8, 8, 8)
+        push_group_lay.addWidget(self.push_history_ui)
+        push_group.setLayout(push_group_lay)
+        layout.addWidget(push_group, 2)
 
-        # 添加波形图
-        self.waveform = HeartRateWaveform(max_points=60)
-        data_layout.addWidget(self.waveform, 2)  # 比例2，占更多空间
+        # 监听波形画布尺寸变化, 校准日志框左边距与波形Y轴对齐
+        self.waveform.canvas.installEventFilter(self)
 
-        data_group.setLayout(data_layout)
-        layout.addWidget(data_group)
+    def eventFilter(self, obj, event):
+        """波形画布尺寸变化时, 让心率日志框左边缘缩进到与波形Y轴同一垂直线"""
+        if obj is self.waveform.canvas and event.type() == QEvent.Resize:
+            indent = self.waveform.y_axis_left_px()
+            if indent > 0:
+                self._log_row.setContentsMargins(indent, 0, 0, 0)
+        return super().eventFilter(obj, event)
 
     def append_heart_rate(self, timestamp, heart_rate):
         """心率数据更新：追加记录并刷新波形"""

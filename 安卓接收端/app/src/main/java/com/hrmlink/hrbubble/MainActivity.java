@@ -8,16 +8,18 @@ import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.view.View;
-import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
 /**
  * 首页=监测页: 大号心率+实时波形+状态条, 横竖屏双布局
- * - 配置(IP/端口/仅轮询)与权限引导在设置页(右上角⚙进入)
+ * - 配置(IP/端口/仅轮询)与权限引导在设置页(标题栏"设置"进入)
  * - 悬浮窗为独立开关: 不开浮窗也可只看首页; 开浮窗未监测时自动建连
+ * - 系统标题栏即工具栏: 标题=HRBubble+本地日期时间, 右侧菜单项=设置/悬浮窗/监测
  */
 public class MainActivity extends Activity {
 
@@ -28,14 +30,15 @@ public class MainActivity extends Activity {
     private View dotHome;
     private HeartWaveView wave;
     private ImageView imgHeart;
-    private Button btnMonitor, btnFloat;
     private BroadcastReceiver receiver;
     private TextView txtTime;
-    // 首页时钟(心率数字下方, 与悬浮窗同款24小时制秒级显示)
+    // 标题栏右侧动作菜单(设置/悬浮窗/监测), 悬浮窗与监测文案随服务状态切换
+    private Menu actionBarMenu;
+    // 标题栏本地时钟: 对齐整秒刷新, 仅页面可见期间运行
     private final android.os.Handler clockHandler = new android.os.Handler();
     private Runnable clockTask;
     private final java.text.SimpleDateFormat clockFmt =
-            new java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault());
+            new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault());
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -47,16 +50,9 @@ public class MainActivity extends Activity {
         dotHome = findViewById(R.id.dot_home);
         wave = findViewById(R.id.wave);
         imgHeart = findViewById(R.id.img_heart);
-        btnMonitor = findViewById(R.id.btn_monitor);
-        btnFloat = findViewById(R.id.btn_float);
         txtTime = findViewById(R.id.txt_time);
         txtBpm = findViewById(R.id.txt_bpm);
         txtReconnect = findViewById(R.id.txt_reconnect);
-
-        findViewById(R.id.btn_settings).setOnClickListener(v ->
-                startActivity(new Intent(this, SettingsActivity.class)));
-        btnMonitor.setOnClickListener(v -> toggleMonitor());
-        btnFloat.setOnClickListener(v -> toggleFloat());
     }
 
     private boolean serverConfigured() {
@@ -68,6 +64,7 @@ public class MainActivity extends Activity {
         if (HeartRateService.sRunning) {
             stopService(new Intent(this, HeartRateService.class));
             txtHr.setText("--");
+            txtTime.setText("--:--:--");
             wave.clear();
             setStatusDot(false, false, "");
         } else {
@@ -115,6 +112,8 @@ public class MainActivity extends Activity {
                     String src = i.getStringExtra("src");
                     String info = i.getStringExtra("info"); // 附加状态(EXE智能重连进度)
                     txtHr.setText(hr > 0 ? String.valueOf(hr) : "--");
+                    // 时间显示EXE数据包里的timestamp(PC侧生成), 空则占位
+                    txtTime.setText(shortTime(i.getStringExtra("timestamp")));
                     wave.push(hr);
                     // 心率数值/心形按区间变色(EXE波形区间同款): <60蓝 60-100绿 100-120橙 >120红
                     int c = hr > 0 ? zoneColor(hr) : getColor(R.color.dot_timeout);
@@ -154,13 +153,17 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** 时钟: 对齐整秒刷新, 仅页面可见期间运行 */
+    /** 标题栏本地日期时间: 对齐整秒刷新, 仅页面可见期间运行; 显示在"HRBubble"之后 */
     private void startClock() {
         if (clockTask != null) return;
         clockTask = new Runnable() {
             @Override
             public void run() {
-                txtTime.setText(clockFmt.format(new java.util.Date()));
+                android.app.ActionBar bar = getActionBar();
+                if (bar != null) {
+                    bar.setTitle(getString(R.string.app_name) + "  "
+                            + clockFmt.format(new java.util.Date()));
+                }
                 clockHandler.postDelayed(this, 1000 - (System.currentTimeMillis() % 1000));
             }
         };
@@ -172,6 +175,38 @@ public class MainActivity extends Activity {
             clockHandler.removeCallbacks(clockTask);
             clockTask = null;
         }
+    }
+
+    /** EXE时间戳 "yyyy-MM-dd HH:mm:ss" → 仅取 "HH:mm:ss" 部分(无空格则原样, 空则占位) */
+    private static String shortTime(String ts) {
+        if (ts == null || ts.isEmpty()) return "--:--:--";
+        int sp = ts.indexOf(' ');
+        return (sp >= 0 && sp < ts.length() - 1) ? ts.substring(sp + 1) : ts;
+    }
+
+    /** 系统标题栏动作菜单: 设置/悬浮窗/监测(替代原自定义工具栏按钮) */
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        getMenuInflater().inflate(R.menu.menu_main, menu);
+        actionBarMenu = menu;
+        refreshButtons();
+        return true;
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        int id = item.getItemId();
+        if (id == R.id.action_settings) {
+            startActivity(new Intent(this, SettingsActivity.class));
+            return true;
+        } else if (id == R.id.action_float) {
+            toggleFloat();
+            return true;
+        } else if (id == R.id.action_monitor) {
+            toggleMonitor();
+            return true;
+        }
+        return super.onOptionsItemSelected(item);
     }
 
     @Override
@@ -188,11 +223,12 @@ public class MainActivity extends Activity {
         txtTime.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, sp.getInt("time_font_sp", 20));
     }
 
-    /** 按钮文案跟随服务真实状态(static标志, 旋转重建后也能正确恢复) */
+    /** 标题栏菜单项文案跟随服务真实状态(static标志, 旋转重建后也能正确恢复) */
     private void refreshButtons() {
-        btnMonitor.setText(HeartRateService.sRunning
+        if (actionBarMenu == null) return;
+        actionBarMenu.findItem(R.id.action_monitor).setTitle(HeartRateService.sRunning
                 ? R.string.btn_monitor_stop : R.string.btn_monitor_start);
-        btnFloat.setText(HeartRateService.sOverlayOn
+        actionBarMenu.findItem(R.id.action_float).setTitle(HeartRateService.sOverlayOn
                 ? R.string.btn_float_on : R.string.btn_float_off);
     }
 

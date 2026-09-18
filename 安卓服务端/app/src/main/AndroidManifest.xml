@@ -17,6 +17,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <!-- 直接申请电池优化白名单(长期通电常驻) -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+    <!-- 检查更新: 下载release APK后跳系统安装器(Android 8+侧载需声明) -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
 
     <application
         android:label="@string/app_name"
@@ -43,6 +45,17 @@
         <service
             android:name=".HeartRateService"
             android:exported="false"/>
+
+        <!-- 检查更新: 共享下载的APK给系统安装器 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"/>
+        </provider>
 
     </application>
 </manifest>

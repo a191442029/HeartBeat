@@ -52,5 +52,12 @@
             android:layout_height="wrap_content"
             android:layout_marginBottom="8dp"
             android:text="@string/btn_save_all"/>
+
+        <Button
+            android:id="@+id/btn_check_update"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            android:text="检查更新 (GitHub Releases)"/>
     </LinearLayout>
 </ScrollView>

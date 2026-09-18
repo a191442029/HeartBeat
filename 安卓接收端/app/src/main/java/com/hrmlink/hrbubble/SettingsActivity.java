@@ -74,6 +74,7 @@ public class SettingsActivity extends Activity {
         findViewById(R.id.btn_overlay).setOnClickListener(v -> ensureOverlayPermission());
         findViewById(R.id.btn_battery).setOnClickListener(v -> requestIgnoreBattery());
         findViewById(R.id.btn_save).setOnClickListener(v -> save());
+        findViewById(R.id.btn_check_update).setOnClickListener(v -> checkUpdate());
 
         // 版本号
         ((TextView) findViewById(R.id.txt_version)).setText("HRBubble " + BuildConfig.VERSION_NAME);
@@ -81,6 +82,42 @@ public class SettingsActivity extends Activity {
 
     private static int clamp(int v, int lo, int hi) {
         return v < lo ? lo : (v > hi ? hi : v);
+    }
+
+    /** 检查更新: GitHub releases latest → 弹窗确认 → 下载 → 跳系统安装器 */
+    private void checkUpdate() {
+        Toast.makeText(this, "正在检查更新...", Toast.LENGTH_SHORT).show();
+        UpdateChecker.check((hasUpdate, ver, url, notes, err) -> {
+            if (isFinishing()) return;
+            if (err != null) {
+                Toast.makeText(this, "检查失败: " + err, Toast.LENGTH_LONG).show();
+                return;
+            }
+            if (!hasUpdate) {
+                Toast.makeText(this, "已是最新版本 v" + BuildConfig.VERSION_NAME, Toast.LENGTH_SHORT).show();
+                return;
+            }
+            String msg = "当前版本: v" + BuildConfig.VERSION_NAME
+                    + "\n最新版本: v" + ver
+                    + "\n\n更新说明:\n" + (notes == null || notes.isEmpty() ? "—" : notes);
+            new android.app.AlertDialog.Builder(this)
+                    .setTitle("发现新版本")
+                    .setMessage(msg)
+                    .setPositiveButton("下载并安装", (d, w) -> {
+                        Toast.makeText(this, "开始下载 v" + ver + "...", Toast.LENGTH_SHORT).show();
+                        UpdateChecker.download(getApplicationContext(), url, ver, (apk, derr) -> {
+                            if (isFinishing()) return;
+                            if (derr != null) {
+                                Toast.makeText(this, "下载失败: " + derr, Toast.LENGTH_LONG).show();
+                                return;
+                            }
+                            Toast.makeText(this, "下载完成, 请确认安装", Toast.LENGTH_SHORT).show();
+                            UpdateChecker.install(getApplicationContext(), apk);
+                        });
+                    })
+                    .setNegativeButton("稍后再说", null)
+                    .show();
+        });
     }
 
     private void save() {

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 系统标题栏右侧的动作按钮: 设置/悬浮窗/监测(文案随服务状态动态切换) -->
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item
+        android:id="@+id/action_settings"
+        android:title="@string/btn_settings"
+        android:showAsAction="always"/>
+
+    <item
+        android:id="@+id/action_float"
+        android:title="@string/btn_float_off"
+        android:showAsAction="always"/>
+
+    <item
+        android:id="@+id/action_monitor"
+        android:title="@string/btn_monitor_start"
+        android:showAsAction="always"/>
+</menu>

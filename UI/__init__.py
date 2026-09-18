@@ -19,7 +19,6 @@ from .MQTTSettingUI import MQTTSettingsUI
 from .InfluxDBSettingUI import InfluxDBSettingsUI
 from .TailscaleSettingUI import TailscaleSettingsUI
 from .PushSettingUI import PushSettingsUI
-from .PushHistoryUI import PushHistoryUI
 from .XiaoiSettingUI import XiaoiSettingsUI
 from system_utils import check_run, AppisRunning, vname, logger, try_except, ups, gs, checkupdate, add_to_startup, remove_from_startup, check_startup, dpapi_protect, dpapi_unprotect
 from .Floatingwin_old import *
@@ -27,6 +26,7 @@ from mqtt_client import MQTTClient
 from heart_rate_logger import HeartRateLogger
 from influxdb_writer import InfluxDBWriter
 from push_notifier import NotifierManager
+import push_notifier  # 模块引用: 设置on_push_recorded回调驱动推送记录表自动刷新
 from webpush_server import WebPushServer, detect_tailscale_ip
 
 # 主窗口类
@@ -34,6 +34,7 @@ class MainWindow(QMainWindow):
     updata_window_show_ = pyqtSignal(str, str, str, str)
     status_msg = pyqtSignal(str)  # 后台线程向主线程安全更新状态栏文案
     errorwinopen = pyqtSignal(str, bool, bool)
+    push_history_changed = pyqtSignal()  # 推送记录落盘后通知UI刷新(可由后台线程触发)
     iserror = False
     @try_except("主窗口初始化")
     def __init__(self):
@@ -50,6 +51,7 @@ class MainWindow(QMainWindow):
         self._minimize_hint_shown = False  # 是否已提示过"最小化到托盘"
         self._last_watch_connected = None  # 设备状态监视: 上次连接状态(None=未初始化)
         self.notifier = NotifierManager()  # 多渠道手机推送通知器(MeoW/Bark/ntfy)
+        self.notifier.on_alarm_hook = self._on_remote_alarm  # 远程报警: WS推给安卓接收端响铃
         self.web_server = None  # Tailscale心率数据服务(WS推送+HTTP轮询)
 
         self.errorwinopen.connect(self.errorwin)
@@ -121,8 +123,10 @@ class MainWindow(QMainWindow):
         elif self.logical_dpix != x_ or self.logical_dpiy != y_:
             sfs(x_,y_)
 
-    def _make_page(self, content, is_layout=False):
-        """统一页面构造: 统一边距/间距 + 底部弹性留白 + 滚动区包装(小屏/超高内容出滚动条)"""
+    def _make_page(self, content, is_layout=False, fill=False, scroll=True):
+        """统一页面构造: 统一边距/间距 + 底部弹性留白 + 滚动区包装(小屏/超高内容出滚动条)
+        fill=True 时内容撑满整页(无底部弹性留白), 用于心率监测等需要随窗口拉伸的页面;
+        scroll=False 时不包外层滚动区(页面内各区域自带内部滚动, 如推送记录表格)"""
         page = QWidget()
         lay = QVBoxLayout(page)
         page_layout(lay)
@@ -130,8 +134,9 @@ class MainWindow(QMainWindow):
             lay.addLayout(content)
         else:
             lay.addWidget(content)
-        lay.addStretch()
-        return wrap_scroll(page)
+        if not fill:
+            lay.addStretch()
+        return wrap_scroll(page) if scroll else page
 
     def setup_ui(self):
 
@@ -143,6 +148,9 @@ class MainWindow(QMainWindow):
         # 状态栏
         self.status_label = QLabel("准备就绪")
         self.status_label.setAlignment(Qt.AlignCenter)
+        # 底部状态栏加高、字号略大, 长内容(如"心率数据服务 (host:port)")显示更清楚
+        self.status_label.setStyleSheet("font-size: 11pt;")
+        self.status_label.setMinimumHeight(36)
 
         # 主布局
         main_widget = QWidget()
@@ -154,19 +162,30 @@ class MainWindow(QMainWindow):
 
         # 创建主选项卡
         main_tab_widget = QTabWidget()
+        # TAB标签块加大(字号保持默认): 加高加宽点击区, 标签之间留间距
+        main_tab_widget.setStyleSheet(
+            "QTabBar::tab { padding: 8px 18px; margin-right: 6px; }")
         main_layout.addWidget(main_tab_widget, 2)
 
-        # 创建设备管理页面
+        # 创建设备管理页面(已并入"基本设置"页上部)
         self.device_ui = DeviceConnectionUI(self.status_label)
-        device_page = self._make_page(self.device_ui, is_layout=True)
-
-        # 创建心率监测页面（心率数据与波形独立展示）
-        hr_page = self._make_page(self.device_ui.monitor_ui)
 
         # 创建设置页面 (浮动窗口设置已并入基本设置页)
         self.settings_ui = AppSettingsUI()
-        settings_page = self._make_page(self.settings_ui)
         self.float_ui = self.settings_ui.float_settings  # 兼容原有引用(信号连接/浮窗更新)
+
+        # 合并页: 上部设备管理(设备管理/连接设置分组) + 下部软件设置
+        merged_widget = QWidget()
+        merged_lay = QVBoxLayout(merged_widget)
+        page_layout(merged_lay)
+        merged_lay.addLayout(self.device_ui)
+        merged_lay.addWidget(self.settings_ui)
+        merged_lay.addStretch()
+        settings_page = wrap_scroll(merged_widget)
+
+        # 创建心率监测页面(左右分栏: 左日志+波形, 右推送记录; 撑满整页随窗口拉伸,
+        # 不包外层滚动区——滚动只发生在日志文本框与推送记录表格内部)
+        hr_page = self._make_page(self.device_ui.monitor_ui, fill=True, scroll=False)
 
         # 创建MQTT设置页面
         self.mqtt_ui = MQTTSettingsUI()
@@ -188,20 +207,17 @@ class MainWindow(QMainWindow):
         self.xiaoi_ui = XiaoiSettingsUI()
         xiaoi_page = self._make_page(self.xiaoi_ui)
 
-        # 创建推送记录页面
-        self.push_history_ui = PushHistoryUI()
-        push_history_page = self._make_page(self.push_history_ui)
+        # 创建推送记录组件: 已并入心率监测页右列(由 HeartRateMonitorUI 创建)
+        self.push_history_ui = self.device_ui.monitor_ui.push_history_ui
 
         # 将页面添加到主选项卡
         main_tab_widget.addTab(hr_page, "心率监测")
-        main_tab_widget.addTab(device_page, "设备管理")
         main_tab_widget.addTab(settings_page, "基本设置")
         main_tab_widget.addTab(mqtt_page, "MQTT设置")
         main_tab_widget.addTab(influxdb_page, "InfluxDB设置")
         main_tab_widget.addTab(tailscale_page, "Tailscale")
         main_tab_widget.addTab(push_page, "消息推送")
         main_tab_widget.addTab(xiaoi_page, "小爱音箱")
-        main_tab_widget.addTab(push_history_page, "推送记录")
 
         # 添加状态栏
         main_layout.addWidget(self.status_label)
@@ -223,6 +239,10 @@ class MainWindow(QMainWindow):
         self.tailscale_ui.tailscale_settings_changed.connect(self.on_tailscale_settings_changed)
         self.push_ui.push_settings_changed.connect(self.on_push_settings_changed)
         self.xiaoi_ui.xiaoi_settings_changed.connect(self.on_push_settings_changed)
+        # 推送记录落盘后自动刷新心率监测页右列的推送记录表
+        # (推送可能在后台线程发生, 经信号队列化切回主线程执行refresh)
+        push_notifier.on_push_recorded = self.push_history_changed.emit
+        self.push_history_changed.connect(self.push_history_ui.refresh)
         # 设备连接状态监视定时器(2秒): 状态变化时触发推送断连/恢复通知
         self.device_watch_timer = QTimer(self)
         self.device_watch_timer.timeout.connect(self.watch_device_connection)
@@ -431,6 +451,11 @@ class MainWindow(QMainWindow):
         """智能重连状态中继: 同步到Tailscale数据服务info字段(安卓端波形上方显示)"""
         if self.web_server:
             self.web_server.update_info(text)
+
+    def _on_remote_alarm(self, seconds):
+        """远程报警钩子(notifier心率类告警触发, Qt主线程): WS快照alarm=true推给接收端响铃"""
+        if self.web_server:
+            self.web_server.trigger_alarm(seconds)
 
     def start_mqtt_timer(self):
         """启动MQTT定时发送定时器"""

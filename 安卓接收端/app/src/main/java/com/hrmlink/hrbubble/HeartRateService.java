@@ -75,6 +75,7 @@ public class HeartRateService extends Service {
                     d.putExtra("hr", 0);
                     d.putExtra("connected", false);
                     d.putExtra("src", "超时");
+                    d.putExtra("timestamp", ""); // 超时清空时间显示
                     sendBroadcast(d);
                 }
             }
@@ -161,6 +162,7 @@ public class HeartRateService extends Service {
         stopPolling();
         if (pollDelayTask != null) pollDelayTask.cancel(false);
         if (poller != null) poller.shutdownNow();
+        AlarmPlayer.stop(); // 服务停止时确保报警音不残留
         overlay.remove();
         connStarted = false;
         sRunning = false;
@@ -288,15 +290,23 @@ public class HeartRateService extends Service {
             int hr = o.optInt("heart_rate", 0);
             boolean connected = "connected".equals(o.optString("status"));
             String info = o.optString("info", ""); // 附加状态(EXE智能重连进度), 空串=无
+            String ts = o.optString("timestamp", ""); // EXE侧时间戳(PC生成), 随数据透传显示
+            boolean alarm = o.optBoolean("alarm", false); // EXE远程报警: true=循环响铃, false=停铃
+            if (alarm) {
+                AlarmPlayer.play(this);
+            } else {
+                AlarmPlayer.stop();
+            }
             lastDataMs = System.currentTimeMillis();
             timeoutNotified = false; // 数据恢复, 超时广播复位
-            overlay.update(hr, connected, fromWs, fromWs ? "WS" : "HTTP");
+            overlay.update(hr, connected, fromWs, fromWs ? "WS" : "HTTP", ts);
             // 广播给首页(大数字+波形+状态点+附加状态行)
             Intent d = new Intent(ACTION_DATA);
             d.putExtra("hr", hr);
             d.putExtra("connected", connected);
             d.putExtra("info", info);
             d.putExtra("src", fromWs ? "WS" : "HTTP");
+            d.putExtra("timestamp", ts);
             sendBroadcast(d);
         } catch (Exception ignored) {
         }

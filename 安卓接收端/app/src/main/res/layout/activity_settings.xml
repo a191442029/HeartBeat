@@ -135,6 +135,13 @@
             android:layout_marginTop="16dp"
             android:text="@string/btn_save"/>
 
+        <Button
+            android:id="@+id/btn_check_update"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="检查更新 (GitHub Releases)"/>
+
         <TextView
             android:id="@+id/txt_version"
             android:layout_width="match_parent"

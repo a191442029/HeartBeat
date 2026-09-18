@@ -35,10 +35,6 @@ public class OverlayManager {
     private WindowManager.LayoutParams params;
     private boolean added = false;
     private boolean largeFont = false;
-    // 悬浮窗时钟: 24小时制 HH:mm:ss, 对齐整秒刷新(仅显示期间跑)
-    private final java.text.SimpleDateFormat clockFmt =
-            new java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault());
-    private Runnable clockTask;
 
     public OverlayManager(Context context) {
         this.context = context;
@@ -52,14 +48,12 @@ public class OverlayManager {
         try {
             wm.addView(bubble, params);
             added = true;
-            startClock();
         } catch (Exception e) {
             // 权限被撤回等场景, 静默失败由服务状态栏提示
         }
     }
 
     public synchronized void remove() {
-        stopClock();
         if (added && bubble != null) {
             try {
                 wm.removeView(bubble);
@@ -73,8 +67,8 @@ public class OverlayManager {
         return added;
     }
 
-    /** 更新心率显示 */
-    public void update(int hr, boolean connected, boolean fromWs, String srcLabel) {
+    /** 更新心率显示(时间来自EXE数据包的timestamp, 非设备本地时钟) */
+    public void update(int hr, boolean connected, boolean fromWs, String srcLabel, String timeStr) {
         final int color = connected
                 ? (fromWs ? context.getColor(R.color.dot_ws) : context.getColor(R.color.dot_poll))
                 : context.getColor(R.color.dot_timeout); // 设备断连/无数据 = 灰色
@@ -83,6 +77,7 @@ public class OverlayManager {
             if (bubble == null) return;
             hrText.setText(text + " BPM");
             srcText.setText(srcLabel);
+            timeText.setText(shortTime(timeStr));
             setDotColor(color);
             // 状态点随数据闪烁: 全亮→衰减到30%; 无数据时由 timeout() 恢复常亮灰
             dot.animate().cancel();
@@ -97,10 +92,18 @@ public class OverlayManager {
             if (bubble == null) return;
             hrText.setText("-- BPM");
             srcText.setText("超时");
+            timeText.setText("--:--:--");
             setDotColor(context.getColor(R.color.dot_timeout));
             dot.animate().cancel();
             dot.setAlpha(1f);
         });
+    }
+
+    /** EXE时间戳 "yyyy-MM-dd HH:mm:ss" → 仅取 "HH:mm:ss" 部分(无空格则原样, 空则占位) */
+    private static String shortTime(String ts) {
+        if (ts == null || ts.isEmpty()) return "--:--:--";
+        int sp = ts.indexOf(' ');
+        return (sp >= 0 && sp < ts.length() - 1) ? ts.substring(sp + 1) : ts;
     }
 
     private void setDotColor(int color) {
@@ -178,26 +181,5 @@ public class OverlayManager {
     private void toggleFont() {
         largeFont = !largeFont;
         hrText.setTextSize(largeFont ? 34f : 22f);
-    }
-
-    /** 时钟: 显示期间每秒刷新, 对齐到下一个整秒(跳动更自然) */
-    private void startClock() {
-        if (clockTask != null) return;
-        clockTask = new Runnable() {
-            @Override
-            public void run() {
-                if (!added) return;
-                timeText.setText(clockFmt.format(new java.util.Date()));
-                mainHandler.postDelayed(this, 1000 - (System.currentTimeMillis() % 1000));
-            }
-        };
-        mainHandler.post(clockTask);
-    }
-
-    private void stopClock() {
-        if (clockTask != null) {
-            mainHandler.removeCallbacks(clockTask);
-            clockTask = null;
-        }
     }
 }
