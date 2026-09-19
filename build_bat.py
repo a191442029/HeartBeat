@@ -23,6 +23,7 @@ def main(VER2, vname=None):
         '080404B0',
         [
           StringStruct('FileDescription', '通过低功耗蓝牙协议获取心率并显示 | Compiled using Pyinstaller'),
+          StringStruct('FileVersion', '{", ".join(map(str, VER2[0:3]))}'),
           StringStruct('ProductVersion', '{", ".join(map(str, VER2[0:3]))}'),
           StringStruct('LegalCopyright', 'Copyright (C) 2026 HRMLink | GPL-3.0 License'),
           StringStruct('CompanyName', 'HRMLink'),
