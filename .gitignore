@@ -38,3 +38,6 @@ _backup/
 安卓服务端/.idea/
 安卓服务端/*.apk
 安卓服务端/*.iml
+
+# ---- 鸿蒙客户端 ----
+Harmony/_backup/
