@@ -1,0 +1,14 @@
+{
+  "name": "v1.0.2+code.0",
+  "version": 2,
+  "VER2": [
+    1,
+    0,
+    2,
+    0
+  ],
+  "gxjs": "优化应用启动，修复无法保存文件的问题等",
+
+
+  "frozen":{"name": "v1.0.2", "version": 2, "VER2": [1, 0, 2, 0], "updateTime": "2026-09-19-19:58:00", "gxjs": "状态提示同步: 断连/连接过程/失败原因实时同步到安卓接收端波形上方显示", "index": "https://github.com/a191442029/HeartBeat/releases/v1.0.2", "download": "https://github.com/a191442029/HeartBeat/releases/download/v1.0.2/HRMLink.exe"}
+}

@@ -637,11 +637,15 @@ class DeviceConnectionUI(QVBoxLayout):
         self.linking = True
 
         self.status_label.setText(f"正在连接 {device_name}...")
+        # 同步连接过程提示到接收端(波形上方info行)
+        self.reconnect_status.emit(f"正在连接 {device_name}...")
         logger.info(f"尝试连接 {device_name} ({device_address})")
 
         try:
             success, rtext = await self.ble_monitor.connect_device(device_address)
             self.status_label.setText(rtext.format(device_address=device_name))
+            # 同步连接结果到接收端: 成功清除提示, 失败显示原因
+            self.reconnect_status.emit("" if success else rtext.format(device_address=device_name))
             logger.info(rtext.format(device_address=f"{device_name} ({device_address})"))
             if success:
                 self.set_act_Devstatus.emit("断开")
@@ -660,6 +664,7 @@ class DeviceConnectionUI(QVBoxLayout):
         #
         except BleakDeviceNotFoundError:
             self.status_label.setText(f"未找到设备 {device_name}")
+            self.reconnect_status.emit(f"未找到设备 {device_name}")
             logger.error(f"未找到设备 {device_name}")
             # 如果是智能重连模式，继续尝试下一个设备
             if self.reconnect_active:
@@ -668,8 +673,10 @@ class DeviceConnectionUI(QVBoxLayout):
         except BleakError as e:
             if "Could not get GATT services: Unreachable" in str(e):
                 self.status_label.setText(f"设备GATT服务不可用, 请尝试重新启动设备心率广播功能")
+                self.reconnect_status.emit(f"设备GATT服务不可用, 请尝试重新启动设备心率广播功能")
             else:
                 self.status_label.setText(f"连接错误: {str(e)}")
+                self.reconnect_status.emit(f"连接错误: {str(e)}")
             self.heart_rate_display.append(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 连接失败: {str(e)}")
             logger.error(f"连接设备时出错: {e}", exc_info=True)
             # 如果是智能重连模式，继续尝试下一个设备
@@ -679,10 +686,12 @@ class DeviceConnectionUI(QVBoxLayout):
         except OSError as e:
             if e.winerror == -2147023673:
                 self.status_label.setText(f"链接请求被中断({e.winerror})")
+                self.reconnect_status.emit(f"链接请求被中断({e.winerror})")
                 self.heart_rate_display.append(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 连接失败: {str(e)}")
                 logger.warning(f"连接设备时出错: {e}")
             else:
                 self.status_label.setText(f"连接错误: {str(e)}")
+                self.reconnect_status.emit(f"连接错误: {str(e)}")
                 self.heart_rate_display.append(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 链接错误: {str(e)}")
                 logger.error(f"连接设备时出错: {e}", exc_info=True)
             # 如果是智能重连模式，继续尝试下一个设备
@@ -691,6 +700,7 @@ class DeviceConnectionUI(QVBoxLayout):
                 QTimer.singleShot(self.reconnect_delay * 1000, self.try_connect_next_favorite)
         except Exception as e:
             self.status_label.setText(f"连接错误: {str(e)}")
+            self.reconnect_status.emit(f"连接错误: {str(e)}")
             self.heart_rate_display.append(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 连接失败: {str(e)}")
             logger.error(f"连接设备时出错: {e}", exc_info=True)
             # 如果是智能重连模式，继续尝试下一个设备
@@ -704,6 +714,7 @@ class DeviceConnectionUI(QVBoxLayout):
 
     def disconnect_error(self, e):
         self.status_label.setText(e)
+        self.reconnect_status.emit(e)
     
     @asyncSlot()
     async def disconnect_device(self):
@@ -718,6 +729,8 @@ class DeviceConnectionUI(QVBoxLayout):
                 self.auto_connect_now = False
                 self.be_timeout = False
                 self.status_label.setText("已断开连接")
+                # 同步断开状态到接收端
+                self.reconnect_status.emit("已断开连接")
                 self.set_devicelist_use(True)
                 self.device_list_status.setText("断开连接后重新扫描设备...")
                 self.heart_rate_display.append(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 已断开连接")
@@ -752,6 +765,7 @@ class DeviceConnectionUI(QVBoxLayout):
                     )
             else:
                 self.status_label.setText("断开连接失败")
+                self.reconnect_status.emit("断开连接失败")
             self.quit_ = False
         await disconnect()
 
@@ -768,6 +782,8 @@ class DeviceConnectionUI(QVBoxLayout):
             if self.be_timeout:
                 # 检测到连接断开
                 self.status_label.setText("链接被断开")
+                # 同步断连提示到接收端(智能重连文本随后覆盖)
+                self.reconnect_status.emit("链接被断开")
                 self.set_act_Devstatus.emit("连接")
                 self.be_timeout = False
                 self.set_devicelist_use(True)
