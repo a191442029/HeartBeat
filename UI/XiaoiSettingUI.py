@@ -1,27 +1,32 @@
 from PyQt5.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QGroupBox,
-    QPushButton, QCheckBox, QMessageBox, QWidget, QSizePolicy, QFormLayout
+    QPushButton, QCheckBox, QMessageBox, QWidget, QFormLayout, QListWidget,
+    QListWidgetItem
 )
 from PyQt5.QtCore import pyqtSignal, QTimer, Qt
-from system_utils import logger, ups, gs
+from system_utils import logger, ups, gs, dpapi_protect
 from push_notifier import XiaoiPush, record_push
-from .basicwidgets import group_layout, hint_label, button_row, FORM_MAX_WIDTH
+import json
 import threading
+
+from .basicwidgets import group_layout, hint_label, button_row, FORM_MAX_WIDTH
 
 
 class XiaoiSettingsUI(QWidget):
-    """小爱音箱语音播报设置界面 (经xiaoi桥接服务Webhook播报, 可作为第4推送渠道)"""
+    """小爱音箱语音播报设置界面 (EXE直连小米云端播报, 无需xiaoi桥接/Docker)"""
     xiaoi_settings_changed = pyqtSignal(dict)
 
     def __init__(self):
         super().__init__()
+        self._pass_b64 = ""   # 已保存的加密密码(留空密码框时沿用)
+        self._speakers = []   # 登录后缓存的音箱列表 [{'deviceID','name','hardware'}]
         self.setup_ui()
         self.load_settings()
 
     def setup_ui(self):
         main_layout = QVBoxLayout()
 
-        group = QGroupBox("小爱音箱语音播报 (xiaoi桥接)")
+        group = QGroupBox("小爱音箱语音播报 (直连小米云端)")
         group.setMaximumWidth(FORM_MAX_WIDTH)  # 与MQTT/InfluxDB页保持一致的表单限宽
         layout = group_layout(QVBoxLayout())
         group.setLayout(layout)
@@ -35,26 +40,38 @@ class XiaoiSettingsUI(QWidget):
         form.setLabelAlignment(Qt.AlignRight)
         form.setFieldGrowthPolicy(QFormLayout.FieldsStayAtSizeHint)
 
-        self.server_input = QLineEdit()
-        self.server_input.setPlaceholderText("xiaoi Webhook地址, 默认 127.0.0.1:51666")
-        self.server_input.setMinimumWidth(320)
-        form.addRow("服务地址:", self.server_input)
+        self.user_input = QLineEdit()
+        self.user_input.setPlaceholderText("小米账号 (手机号/邮箱/小米ID)")
+        self.user_input.setMinimumWidth(320)
+        form.addRow("小米账号:", self.user_input)
 
-        self.token_input = QLineEdit()
-        self.token_input.setEchoMode(QLineEdit.Password)
-        self.token_input.setPlaceholderText("可选: 服务端webhook.token鉴权时填写")
-        self.token_input.setMinimumWidth(320)
-        form.addRow("令牌:", self.token_input)
+        self.pass_input = QLineEdit()
+        self.pass_input.setEchoMode(QLineEdit.Password)
+        self.pass_input.setPlaceholderText("小米密码 (首次填写; 已保存时留空沿用)")
+        self.pass_input.setMinimumWidth(320)
+        form.addRow("密码:", self.pass_input)
 
-        did_row = QHBoxLayout()
-        self.dids_input = QLineEdit()
-        self.dids_input.setPlaceholderText("可选: 音箱did/名称, 多台用逗号分隔; 留空按桥接服务默认音箱路由")
-        self.dids_input.setMinimumWidth(320)
-        did_row.addWidget(self.dids_input)
+        login_row = QHBoxLayout()
+        self.login_btn = QPushButton("登录并获取音箱")
+        self.login_btn.clicked.connect(self.login_fetch_speakers)
+        login_row.addWidget(self.login_btn)
+        self.status_label = QLabel("")
+        login_row.addWidget(self.status_label)
+        login_row.addStretch()
+        form.addRow("音箱列表:", login_row)
+
+        self.speaker_list = QListWidget()
+        self.speaker_list.setMinimumHeight(100)
+        self.speaker_list.setMaximumHeight(140)
+        self.speaker_list.setToolTip("勾选要播报的音箱(可多台); 全不勾则播第一台")
+        form.addRow("", self.speaker_list)
+
+        test_row = QHBoxLayout()
         self.test_btn = QPushButton("测试")
         self.test_btn.clicked.connect(self.test_push)
-        did_row.addWidget(self.test_btn)
-        form.addRow("音箱did:", did_row)
+        test_row.addWidget(self.test_btn)
+        test_row.addStretch()
+        form.addRow("测试:", test_row)
 
         layout.addLayout(form)
 
@@ -64,11 +81,11 @@ class XiaoiSettingsUI(QWidget):
         main_layout.addWidget(group)
 
         main_layout.addWidget(hint_label(
-            "使用前提: 先在本机/局域网部署 xiaoi 桥接服务并登录小米账号, 例如:\n"
-            "  docker run -d --name xiaoi-webhook --restart unless-stopped -p 51666:51666 \\\n"
-            "    -e XIAOI_USER_ID=你的小米ID -e XIAOI_PASS_TOKEN=你的passToken iusy/xiaoi\n"
-            "保存后, 心率告警/设备断连/心律不齐等告警文本会POST到其 /webhook/tts 由小爱音箱语音播报;\n"
-            "body传did时该音箱必须已添加到桥接服务的音箱列表且启用, 否则返回400。"))
+            "EXE内置小米云端直连(MiOT TTS优先/MiNA兜底), 无需再部署xiaoi桥接服务或Docker。\n"
+            "填写小米账号密码后点\"登录并获取音箱\", 勾选音箱并保存;\n"
+            "密码经Windows DPAPI加密存储; 登录凭证缓存在程序目录 xiaomi_token.json。\n"
+            "如提示需要二次验证: 先在手机米家APP或网页版登录一次并允许新设备后再试。\n"
+            "心率告警/设备断连/心律不齐等告警会由小爱音箱语音播报。"))
 
         main_layout.addStretch()
 
@@ -77,42 +94,141 @@ class XiaoiSettingsUI(QWidget):
     def update_ui_state(self, state=None):
         """根据启用状态更新控件可用性"""
         on = self.enabled.isChecked()
-        for w in (self.server_input, self.dids_input, self.token_input, self.test_btn):
+        for w in (self.user_input, self.pass_input, self.login_btn,
+                  self.speaker_list, self.test_btn):
             w.setEnabled(on)
 
     def load_settings(self):
-        """加载小爱音箱设置"""
+        """加载小爱音箱设置(含音箱列表缓存, 免重复登录即可回显勾选)"""
         self.enabled.setChecked(self._get("xiaoi_enabled", False, bool))
-        self.server_input.setText(self._get("xiaoi_server", "", str))
-        self.dids_input.setText(self._get("xiaoi_dids", "", str))
-        self.token_input.setText(self._get("xiaoi_token", "", str))
+        self.user_input.setText(self._get("xiaoi_user", "", str))
+        self._pass_b64 = self._get("xiaoi_pass_b64", "", str)
+        try:
+            self._speakers = json.loads(self._get("xiaoi_speakers_json", "[]", str) or "[]")
+        except Exception:
+            self._speakers = []
+        self._fill_speaker_list(self._get("xiaoi_dids", "", str))
+        if self._pass_b64:
+            self.pass_input.setPlaceholderText("已加密保存 (留空沿用原密码)")
         self.update_ui_state()
+
+    def _fill_speaker_list(self, dids_csv: str):
+        """按缓存列表填充勾选框; dids_csv为已选deviceID逗号串"""
+        selected = {x.strip() for x in (dids_csv or "").split(",") if x.strip()}
+        self.speaker_list.clear()
+        for spk in self._speakers:
+            label = f"{spk.get('name', '')} [{spk.get('hardware', '')}]"
+            item = QListWidgetItem(label)
+            item.setData(Qt.UserRole, spk.get("deviceID", ""))
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Checked if str(spk.get("deviceID", "")) in selected
+                               else Qt.Unchecked)
+            self.speaker_list.addItem(item)
+
+    def _selected_dids(self) -> list:
+        """勾选中的deviceID列表"""
+        out = []
+        for i in range(self.speaker_list.count()):
+            it = self.speaker_list.item(i)
+            if it.checkState() == Qt.Checked:
+                out.append(str(it.data(Qt.UserRole)))
+        return out
+
+    def _effective_pass_b64(self) -> str:
+        """当前生效密码的加密串: 新填优先, 否则沿用已存"""
+        pwd = self.pass_input.text().strip()
+        return dpapi_protect(pwd) if pwd else self._pass_b64
 
     def save_settings(self):
         """保存小爱音箱设置"""
         self._up("xiaoi_enabled", self.enabled.isChecked())
-        self._up("xiaoi_server", self.server_input.text().strip())
-        self._up("xiaoi_dids", self.dids_input.text().strip())
-        self._up("xiaoi_token", self.token_input.text().strip())
+        self._up("xiaoi_user", self.user_input.text().strip())
+        self._pass_b64 = self._effective_pass_b64()
+        self._up("xiaoi_pass_b64", self._pass_b64)
+        self._up("xiaoi_dids", ",".join(self._selected_dids()))
+        if self.pass_input.text().strip():
+            self.pass_input.clear()
+            self.pass_input.setPlaceholderText("已加密保存 (留空沿用原密码)")
         self.xiaoi_settings_changed.emit(self.get_config())
         QMessageBox.information(self, "成功", "小爱音箱设置已保存")
 
     def get_config(self):
-        """获取当前小爱音箱配置"""
+        """获取当前小爱音箱配置(保存后 notifier.load_config 据此重建渠道)"""
         return {
             "xiaoi_enabled": self.enabled.isChecked(),
-            "xiaoi_server": self.server_input.text().strip(),
-            "xiaoi_dids": self.dids_input.text().strip(),
-            "xiaoi_token": self.token_input.text().strip(),
+            "xiaoi_user": self.user_input.text().strip(),
+            "xiaoi_pass_b64": self._pass_b64,
+            "xiaoi_dids": ",".join(self._selected_dids()),
         }
 
+    def login_fetch_speakers(self):
+        """登录小米账号并拉取音箱列表: 后台线程执行, QTimer轮询结果回UI线程"""
+        user = self.user_input.text().strip()
+        if not user:
+            QMessageBox.warning(self, "提示", "请先填写小米账号")
+            return
+        pass_b64 = self._effective_pass_b64()
+        if not pass_b64:
+            QMessageBox.warning(self, "提示", "请先填写小米密码")
+            return
+        self.login_btn.setEnabled(False)
+        self.status_label.setText("登录中...")
+        result = {}
+
+        def worker():
+            from xiaomi_tts import xiaoi_speakers_sync
+            result["r"] = xiaoi_speakers_sync(user, pass_b64)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+        def check():
+            if "r" not in result:
+                return
+            self._login_timer.stop()
+            self.login_btn.setEnabled(True)
+            ok, data = result["r"]
+            if not ok:
+                self.status_label.setText("登录失败")
+                QMessageBox.warning(self, "登录失败", str(data))
+                return
+            self._speakers = data
+            logger.info(f"[小爱音箱] 登录成功, 获取到{len(data)}台音箱")
+            # 凭证与列表立即落盘(下次打开免登录; 保存按钮负责did勾选)
+            self._up("xiaoi_user", user)
+            self._pass_b64 = pass_b64
+            self._up("xiaoi_pass_b64", pass_b64)
+            self._up("xiaoi_speakers_json", json.dumps(data, ensure_ascii=False))
+            self._fill_speaker_list(self._get("xiaoi_dids", "", str))
+            if self.pass_input.text().strip():
+                self.pass_input.clear()
+                self.pass_input.setPlaceholderText("已加密保存 (留空沿用原密码)")
+            self.status_label.setText(f"已获取{len(data)}台音箱")
+            QMessageBox.information(self, "成功",
+                                    f"登录成功, 获取到{len(data)}台音箱, 请勾选后保存")
+
+        # 登录/测试各用独立QTimer(共用会被后者覆盖, 致登录轮询永续而测试按钮禁死)
+        old = getattr(self, "_login_timer", None)
+        if old:
+            old.stop()
+        self._login_timer = QTimer(self)
+        self._login_timer.timeout.connect(check)
+        self._login_timer.start(300)
+
     def test_push(self):
-        """测试播报: 后台线程发请求, QTimer轮询结果回UI线程弹窗"""
+        """测试播报: 后台线程直连播报, QTimer轮询结果回UI线程弹窗"""
         if not self.enabled.isChecked():
             QMessageBox.warning(self, "警告", "请先启用小爱音箱播报")
             return
-        ch = XiaoiPush(self.server_input.text(), self.dids_input.text(),
-                       token=self.token_input.text())
+        user = self.user_input.text().strip()
+        pass_b64 = self._effective_pass_b64()
+        if not user or not pass_b64:
+            QMessageBox.warning(self, "提示", "请先填写账号密码并登录获取音箱")
+            return
+        dids = self._selected_dids()
+        if not dids and not self._speakers:
+            QMessageBox.warning(self, "提示", "请先\"登录并获取音箱\"并勾选要播报的音箱")
+            return
+        ch = XiaoiPush(user, pass_b64, ",".join(dids))
         self.test_btn.setEnabled(False)
         result = {}
 
@@ -128,16 +244,20 @@ class XiaoiSettingsUI(QWidget):
 
         def check():
             if "ok" in result:
-                self.poll_timer.stop()
+                self._test_timer.stop()
                 self.test_btn.setEnabled(True)
                 if result["ok"]:
                     QMessageBox.information(self, "成功", f"[{ch.name}] {result['msg']}")
                 else:
                     QMessageBox.warning(self, "失败", f"[{ch.name}] {result['msg']}")
 
-        self.poll_timer = QTimer(self)
-        self.poll_timer.timeout.connect(check)
-        self.poll_timer.start(300)
+        # 独立QTimer, 与登录的_login_timer互不覆盖
+        old = getattr(self, "_test_timer", None)
+        if old:
+            old.stop()
+        self._test_timer = QTimer(self)
+        self._test_timer.timeout.connect(check)
+        self._test_timer.start(300)
 
     def _get(self, option: str, default, type_=None):
         """获取设置项"""

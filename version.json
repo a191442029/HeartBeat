@@ -1,14 +1,14 @@
 {
-  "name": "v1.0.2+code.0",
+  "name": "v1.1.1+code.0",
   "version": 2,
   "VER2": [
     1,
-    0,
-    2,
+    1,
+    1,
     0
   ],
-  "gxjs": "优化应用启动，修复无法保存文件的问题等",
+  "gxjs": "报警视频联动与HLS直播、ESP32信号标定、小爱登录提示优化",
 
 
-  "frozen":{"name": "v1.0.2", "version": 2, "VER2": [1, 0, 2, 0], "updateTime": "2026-09-19-19:58:00", "gxjs": "状态提示同步: 断连/连接过程/失败原因实时同步到安卓接收端波形上方显示", "index": "https://github.com/a191442029/HeartBeat/releases/v1.0.2", "download": "https://github.com/a191442029/HeartBeat/releases/download/v1.0.2/HRMLink.exe"}
+  "frozen":{"name": "v1.1.1", "version": 2, "VER2": [1, 1, 1, 0], "updateTime": "2026-09-25-00:00:00", "gxjs": "报警视频联动: 心率报警自动推送绑定摄像头画面(支持HLS实时直播 640x360@15fps); ESP32中继信号标定消除硬件个体差异; 小爱音箱登录错误友好提示; 三端版本同步", "index": "https://github.com/a191442029/HeartBeat/releases/v1.1.1", "download": "https://github.com/a191442029/HeartBeat/releases/download/v1.1.1/HRMLink-v1.1.1.exe"}
 }

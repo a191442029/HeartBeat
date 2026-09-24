@@ -18,4 +18,7 @@
     <string name="btn_float_on">悬浮窗: 开</string>
     <string name="btn_float_off">悬浮窗: 关</string>
     <string name="btn_save">保存设置</string>
+    <string name="btn_alarm_cancel">✕ 取消本次报警</string>
+    <string name="btn_play_clip">▶ 回放</string>
+    <string name="btn_replay_clip">▶ 回看报警视频</string>
 </resources>

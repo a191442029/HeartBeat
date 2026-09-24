@@ -87,6 +87,40 @@
                 android:text="--:--:--"
                 android:textColor="#CCCCCC"
                 android:textSize="18sp"/>
+
+            <!-- 远程报警取消按钮: 仅报警期间显示, 点击停止本次响铃 -->
+            <TextView
+                android:id="@+id/btn_alarm_cancel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/btn_alarm_cancel_bg"
+                android:paddingLeft="24dp"
+                android:paddingRight="24dp"
+                android:paddingTop="10dp"
+                android:paddingBottom="10dp"
+                android:text="@string/btn_alarm_cancel"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:visibility="gone"/>
+
+            <!-- 回看报警视频: 报警取消/结束后, 剪辑已到手时显示(不随面板消失) -->
+            <TextView
+                android:id="@+id/btn_replay"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/btn_replay_bg"
+                android:paddingLeft="24dp"
+                android:paddingRight="24dp"
+                android:paddingTop="10dp"
+                android:paddingBottom="10dp"
+                android:text="@string/btn_replay_clip"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:visibility="gone"/>
         </LinearLayout>
 
         <LinearLayout
@@ -109,6 +143,62 @@
                 android:singleLine="true"
                 android:ellipsize="end"
                 android:visibility="gone"/>
+
+            <!-- 报警视频面板(期3): 报警时替换波形区, 默认显示快照轮询+回放按钮, 播放时切换TextureView -->
+            <FrameLayout
+                android:id="@+id/video_panel"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:layout_marginTop="4dp"
+                android:layout_marginBottom="8dp"
+                android:background="#000000"
+                android:visibility="gone">
+
+                <ImageView
+                    android:id="@+id/img_snap"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:contentDescription="@string/btn_play_clip"
+                    android:scaleType="fitCenter"/>
+
+                <TextureView
+                    android:id="@+id/video_view"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:visibility="gone"/>
+
+                <!-- 相机剪辑切换tab: 多摄像头剪辑时置顶显示, 点击切换回放 -->
+                <HorizontalScrollView
+                    android:id="@+id/clip_tabs_scroll"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:scrollbars="none"
+                    android:background="#66000000"
+                    android:visibility="gone">
+
+                    <LinearLayout
+                        android:id="@+id/clip_tabs"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"/>
+                </HorizontalScrollView>
+
+                <TextView
+                    android:id="@+id/btn_play"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:background="#99000000"
+                    android:paddingLeft="22dp"
+                    android:paddingRight="22dp"
+                    android:paddingTop="10dp"
+                    android:paddingBottom="10dp"
+                    android:text="@string/btn_play_clip"
+                    android:textColor="#FFFFFF"
+                    android:textSize="15sp"
+                    android:textStyle="bold"/>
+            </FrameLayout>
 
             <com.hrmlink.hrbubble.HeartWaveView
                 android:id="@+id/wave"

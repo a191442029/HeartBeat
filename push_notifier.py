@@ -26,7 +26,6 @@ from irregularity_detector import IrregularityDetector
 MEOW_API = "https://api.chuckfang.com"
 BARK_API = "https://api.day.app"
 NTFY_API = "https://ntfy.sh"
-XIAOI_API = "http://127.0.0.1:51666"
 BARK_LEVELS = ("active", "timeSensitive", "passive", "critical")
 
 # 推送记录: JSON文件存储, 保留最近HISTORY_MAX条(含测试推送), 供"推送记录"页展示
@@ -38,12 +37,19 @@ _history_lock = threading.Lock()
 # 推送记录变化回调(UI层设置, 用于推送记录表自动刷新; 可能在后台线程被调用, UI层需自行保证线程安全)
 on_push_recorded = None
 
+# 报警摄像头剪辑钩子: 由UI层设置, 签名 alarm_ts(str) -> None;
+# 心率类报警触发时在后台线程调用(UI层异步剪辑后经 set_alarm_clips 回填片段)
+on_camera_alarm_hook = None
 
-def record_push(channel: str, title: str, msg: str, ok: bool, note: str):
-    """追加一条推送结果并落盘(线程安全, 失败仅记日志)"""
+
+def record_push(channel: str, title: str, msg: str, ok: bool, note: str, extra: dict = None):
+    """追加一条推送结果并落盘(线程安全, 失败仅记日志)
+    extra: 附加字段(如 {"alarm_ts": 报警时刻}), 合并进记录供后续回填/展示"""
     rec = {"time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
            "channel": channel, "ok": bool(ok),
            "title": title, "msg": str(msg), "note": str(note)}
+    if extra:
+        rec.update(extra)
     with _history_lock:
         records = load_push_history()
         records.append(rec)
@@ -60,6 +66,31 @@ def record_push(channel: str, title: str, msg: str, ok: bool, note: str):
             cb()
         except Exception as e:
             logger.error(f"推送记录回调执行失败: {e}")
+
+
+def set_alarm_clips(alarm_ts: str, clips: list):
+    """报警剪辑完成后按 alarm_ts 把片段回填到匹配的推送记录(后台线程调用)
+    clips: [{"cam": 名称, "mp4": 路径, "jpg": 封面}]; 无匹配记录时静默忽略"""
+    hit = False
+    with _history_lock:
+        records = load_push_history()
+        for rec in records:
+            if isinstance(rec, dict) and rec.get("alarm_ts") == alarm_ts:
+                rec["clips"] = clips
+                hit = True
+        if hit:
+            try:
+                with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+                    json.dump(records[-HISTORY_MAX:], f, ensure_ascii=False)
+            except Exception as e:
+                logger.error(f"保存报警剪辑记录失败: {e}")
+    if hit:
+        cb = on_push_recorded
+        if cb:
+            try:
+                cb()
+            except Exception as e:
+                logger.error(f"推送记录回调执行失败: {e}")
 
 
 def load_push_history() -> list:
@@ -210,35 +241,20 @@ class NtfyPush:
 
 
 class XiaoiPush:
-    """小爱音箱渠道: 经局域网内 xiaoi 桥接服务播报(github.com/xvhuan/xiaoi)
-    POST {server}/webhook/tts, body {"text":..., "did":...}; 支持多台音箱did逐台播报
-    server默认 127.0.0.1:51666; token: 服务端配置webhook.token鉴权时填写"""
+    """小爱音箱渠道(直连小米云端): EXE内完成账号登录与TTS播报, 无需xiaoi桥接服务/Docker
+    双链路与xiaoi一致: MiOT TTS动作(siid=5)优先, 失败回退MiNA text_to_speech
+    dids为勾选音箱的MiNA deviceID, 留空播第一台; 密码经DPAPI加密存配置"""
     name = "小爱音箱"
 
-    def __init__(self, server: str = "", dids: str = "", token: str = ""):
-        s = (server or "").strip().rstrip("/")
-        self.server = s if s else XIAOI_API
-        if "://" not in self.server:
-            self.server = f"http://{self.server}"
+    def __init__(self, user: str = "", pass_b64: str = "", dids: str = ""):
+        self.user = (user or "").strip()
+        self.pass_b64 = (pass_b64 or "").strip()
         self.dids = _parse_targets(dids)
-        self.token = (token or "").strip()
 
     def push(self, title: str, msg: str) -> tuple:
         text = f"{title},{msg}"
-        if not self.dids:
-            # 不指定did: 由桥接服务按默认音箱路由
-            return self._post_tts(text, "")
-        return _push_multi(self.dids, lambda d: self._post_tts(text, d))
-
-    def _post_tts(self, text: str, did: str) -> tuple:
-        payload = {"text": text}
-        if did:
-            payload["did"] = did
-        headers = {"Content-Type": "application/json"}
-        if self.token:
-            headers["Authorization"] = f"Bearer {self.token}"
-            headers["X-Xiaoi-Token"] = self.token
-        return _http_post_json(f"{self.server}/webhook/tts", payload, headers)
+        from xiaomi_tts import xiaoi_tts_sync
+        return xiaoi_tts_sync(self.user, self.pass_b64, self.dids, text)
 
 
 def _http_error_note(e: urllib.error.HTTPError) -> str:
@@ -260,6 +276,18 @@ def _http_error_note(e: urllib.error.HTTPError) -> str:
     if body:
         note += f", 服务端说明: {body}"
     return note
+
+
+def _retryable_note(note: str) -> bool:
+    """判断失败说明是否属于连接类错误(超时/连接被拒/网络不可达等)
+    仅这类错误才值得重试: 首次请求可能已被服务端处理但响应超时,
+    非连接类失败(如404/参数错误)重试必然复现, 只会造成重复推送"""
+    if not note:
+        return False
+    n = str(note).lower()
+    return any(k in n for k in (
+        "timeout", "timed out", "connection", "refused", "reset", "unreachable",
+        "network", "getaddrinfo", "ssl", "10060", "10054", "10053"))
 
 
 def _http_get_json(url: str, headers: dict = None) -> tuple:
@@ -314,6 +342,8 @@ class NotifierManager:
         self.irr_detector = None      # 疑似心律不齐检测器(可选启用)
         self.periods = []             # 自定义时段规则列表(每条含独立上下限/持续/冷却)
         self._hr_state = {}           # 各告警类别独立状态: "规则:high/low" -> {since,last}
+        self._dev_lost_last = 0.0     # 设备断开推送冷却(独立计时)
+        self._dev_back_last = 0.0     # 设备恢复推送冷却(独立计时: 断开推送后很快恢复时恢复通知不被吞)
         # 报警音: 本地报警(EXE播放)与远程报警(接收端响铃)独立开关, 由UI勾选框控制
         self.local_alarm_enabled = False
         self.remote_alarm_enabled = False
@@ -348,9 +378,9 @@ class NotifierManager:
                     token=gs("Push", "ntfy_token", "", str, "-Push")))
             if gs("Push", "xiaoi_enabled", False, bool, "-Push"):
                 self.channels.append(XiaoiPush(
-                    gs("Push", "xiaoi_server", "", str, "-Push"),
-                    gs("Push", "xiaoi_dids", "", str, "-Push"),
-                    token=gs("Push", "xiaoi_token", "", str, "-Push")))
+                    gs("Push", "xiaoi_user", "", str, "-Push"),
+                    gs("Push", "xiaoi_pass_b64", "", str, "-Push"),
+                    gs("Push", "xiaoi_dids", "", str, "-Push")))
             # 疑似心律不齐检测器(独立于渠道开关, 未启用时为None)
             if gs("Push", "irregular_enabled", False, bool, "-Push"):
                 self.irr_detector = IrregularityDetector(
@@ -395,29 +425,44 @@ class NotifierManager:
         except Exception as e:
             logger.error(f"报警音触发失败: {e}")
 
-    def _push_all(self, title: str, msg: str):
+    def _push_all(self, title: str, msg: str, alarm_ts: str | None = None,
+                  skip_xiaoi: bool = False):
         """后台线程向所有已启用渠道推送
         每渠道独立线程并行发送: 单渠道响应慢/超时不拖累其他渠道
-        失败自动重试1次(间隔2秒): 兜底网络抖动与服务端瞬时故障(如MeoW偶发超时)"""
-        if title in ("心率告警", "疑似心律不齐"):
+        失败自动重试1次(间隔2秒): 兜底网络抖动与服务端瞬时故障(如MeoW偶发超时)
+        alarm_ts: 调用方预置的时刻戳(摄像头移动侦测用); 心率类告警内部自行生成
+        skip_xiaoi: 跳过小爱音箱渠道(移动侦测只推手机通知, 音箱不播报)"""
+        if alarm_ts is None and title in ("心率告警", "疑似心律不齐"):
             self._fire_alarm_sound()
+            # 报警时刻戳: 推送记录据此关联摄像头剪辑(剪辑异步完成后经set_alarm_clips回填)
+            alarm_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            try:
+                if on_camera_alarm_hook:
+                    on_camera_alarm_hook(alarm_ts)
+            except Exception as e:
+                logger.error(f"摄像头报警剪辑钩子执行失败: {e}")
         if not self.channels:
             return
 
         def push_channel(ch):
             ok, note = ch.push(title, msg)
-            if not ok:
+            if not ok and _retryable_note(note):
+                # 仅连接类错误才重试: 首次请求可能已被服务端处理但响应超时,
+                # 无条件重试会对已送达的通知造成重复推送; 非连接类失败直接落记录
                 time.sleep(2)
                 ok, retry_note = ch.push(title, msg)
                 note = (f"首次失败({note}), 重试成功" if ok
                         else f"{note}; 重试仍失败: {retry_note}")
-            record_push(ch.name, title, msg, ok, note)
+            record_push(ch.name, title, msg, ok, note,
+                        extra={"alarm_ts": alarm_ts} if alarm_ts else None)
             if ok:
                 logger.info(f"[{ch.name}]推送成功: [{title}] {msg}")
             else:
                 logger.warning(f"[{ch.name}]推送失败: {note}")
 
         for ch in self.channels:
+            if skip_xiaoi and isinstance(ch, XiaoiPush):
+                continue
             threading.Thread(target=push_channel, args=(ch,), daemon=True).start()
 
     @staticmethod
@@ -532,14 +577,39 @@ class NotifierManager:
                 f"波动±{metrics['sd']:.1f}, 大幅跳变占比{metrics['jump_ratio']:.0%}。"
                 f"此为筛查提示非医学诊断, 建议静息复测或就医确认")
 
+    def _dev_notify_ok(self, slot: str) -> bool:
+        """设备断开/恢复推送独立冷却闸门: 各自5分钟内最多推1条
+        (蓝牙连接反复失败时is_connected会翻转多次, 无冷却会轰炸手机通知)"""
+        now = time.monotonic()
+        if now - getattr(self, slot) >= 300.0:
+            setattr(self, slot, now)
+            return True
+        return False
+
     def notify_device_lost(self, devname: str = ""):
         """设备断连提醒"""
-        if self.enabled:
+        if self.enabled and self._dev_notify_ok("_dev_lost_last"):
             name = f" {devname}" if devname else ""
             self._push_all("设备断开", f"蓝牙设备{name}已断开连接")
 
     def notify_device_back(self, devname: str = ""):
         """设备重连成功提醒"""
-        if self.enabled:
+        if self.enabled and self._dev_notify_ok("_dev_back_last"):
             name = f" {devname}" if devname else ""
             self._push_all("设备恢复", f"蓝牙设备{name}已重新连接")
+
+    def notify_reconnect_abandoned(self, devname: str = ""):
+        """智能重连多轮未果放弃提醒(不走设备状态冷却: 放弃意味着监护中断, 必须送达)"""
+        if self.enabled:
+            name = f" {devname}" if devname else ""
+            self._push_all("重连放弃",
+                           f"蓝牙设备{name}多轮自动重连失败, 已停止重连, "
+                           f"请检查手环是否被手机抢占或已离开范围")
+
+    def notify_camera_motion(self, cam: str, source: str, alarm_ts: str):
+        """摄像头移动侦测提醒(与心率报警体系独立: 不响铃/不推WS/不触发全路剪辑)
+        仅剪辑触发路自身(由侦测watcher完成)并推送手机通知渠道, 片段经alarm_ts回填记录
+        小爱音箱不播报移动侦测(音箱只负责心率类告警, 避免画面一动就说话)"""
+        src = f"({source})" if source else ""
+        self._push_all("摄像头移动侦测", f"{cam} 检测到画面变动{src}",
+                       alarm_ts=alarm_ts, skip_xiaoi=True)

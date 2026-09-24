@@ -5,6 +5,7 @@ import json
 import shutil
 import inspect
 import logging
+import threading
 import datetime
 import subprocess
 import urllib.error
@@ -194,19 +195,26 @@ config_file = 'config.ini'
 
 config = ConfigParser()
 
+# 配置读写锁: gs/ups/save_settings 会被UI线程与后台线程并发调用, 无锁可能导致写盘交错损坏
+_config_lock = threading.Lock()
+# 配置文件加载失败标记: 置True后ups拒绝写盘, 防止用内存中的空配置覆写用户已有配置
+_config_broken = False
+
 def init_config():
-    global config
+    global config, _config_broken
     try:
         if not os.path.exists(config_file):
             logger.warning("未找到配置文件 config.ini, 尝试创建默认配置文件")
             save_settings()
         config.read(config_file, encoding='utf-8')
         check_sections()
+        _config_broken = False
     except Exception as e:
+        _config_broken = True
         logger.error(f"无法加载配置文件: {e}", exc_info=True)
 
 def check_sections():
-    sectionlist = ['GUI', 'FloatingWindow', 'Device', 'MQTT', 'InfluxDB', 'Logger', 'Push', 'Tailscale']
+    sectionlist = ['GUI', 'FloatingWindow', 'Device', 'MQTT', 'InfluxDB', 'Logger', 'Push', 'Tailscale', 'Camera']
     s_ = False
     for section in sectionlist:
         if not config.has_section(section):
@@ -228,16 +236,28 @@ def update_settings(**kwargs: SETTINGTYPE):
     save_settings()
 
 def save_settings():
+    """保存配置到磁盘(加锁串行化, 多线程安全)"""
     global config
-    with open(config_file, 'w', encoding='utf-8') as configfile:
+    with _config_lock:
+        _write_config_file()
+
+def _write_config_file():
+    """实际落盘: 先写临时文件再os.replace原子替换, 避免写一半崩溃留下损坏的config.ini
+    调用方需已持有_config_lock"""
+    global config
+    tmp_file = config_file + '.tmp'
+    with open(tmp_file, 'w', encoding='utf-8') as configfile:
         config.write(configfile)
+    os.replace(tmp_file, config_file)
 
 def gs(section, option, default, type_:type = None, debugn = ""):
     try:
-        if type_ == bool:
-            data = config.getboolean(section, option, fallback=default)
-        else :
-            data = config.get(section, option, fallback=default)
+        # 只把configparser访问段包进锁, 日志等重活放在锁外
+        with _config_lock:
+            if type_ == bool:
+                data = config.getboolean(section, option, fallback=default)
+            else :
+                data = config.get(section, option, fallback=default)
         logger.debug(f' [{debugn}] -获取配置项 {option} 的值: {data}')
         if data is None or data == "None":
             return default
@@ -250,11 +270,16 @@ def gs(section, option, default, type_:type = None, debugn = ""):
         return default
 
 def ups(section, option: str, value, debugn = ""):
-    if not config.has_section(section):
-        config.add_section(section)  # 防御: 配置未init/section缺失时不再抛NoSectionError
-    config.set(section, option, str(value))
-    logger.debug(f'[{debugn}] 更新配置项 {option} 的值: {value}')
-    save_settings()
+    with _config_lock:
+        if _config_broken:
+            # 配置加载失败时内存config近乎为空, 此时写盘会用空配置覆写用户全部配置, 必须拒绝
+            logger.error(f"[{debugn}] 配置文件加载失败, 拒绝写入配置项 {option} 以防空配置覆写用户数据")
+            return
+        if not config.has_section(section):
+            config.add_section(section)  # 防御: 配置未init/section缺失时不再抛NoSectionError
+        config.set(section, option, str(value))
+        logger.debug(f'[{debugn}] 更新配置项 {option} 的值: {value}')
+        _write_config_file()
 
 # --------敏感配置加密(Windows DPAPI, 当前用户级, 无需额外依赖)--------
 

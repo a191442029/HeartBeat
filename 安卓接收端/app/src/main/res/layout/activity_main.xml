@@ -96,6 +96,136 @@
             android:ellipsize="end"
             android:visibility="gone"/>
 
+        <!-- 远程报警取消按钮: 仅报警期间显示, 点击停止本次响铃 -->
+        <TextView
+            android:id="@+id/btn_alarm_cancel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/btn_alarm_cancel_bg"
+            android:paddingLeft="24dp"
+            android:paddingRight="24dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
+            android:text="@string/btn_alarm_cancel"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:visibility="gone"/>
+
+        <!-- 回看报警视频: 报警取消/结束后, 剪辑已到手时显示(不随面板消失) -->
+        <TextView
+            android:id="@+id/btn_replay"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/btn_replay_bg"
+            android:paddingLeft="24dp"
+            android:paddingRight="24dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
+            android:text="@string/btn_replay_clip"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:visibility="gone"/>
+
+        <!-- 报警视频面板(期3): 报警时替换波形区, 默认显示快照轮询+回放按钮, 播放时切换TextureView -->
+        <FrameLayout
+            android:id="@+id/video_panel"
+            android:layout_width="match_parent"
+            android:layout_height="160dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginLeft="12dp"
+            android:layout_marginRight="12dp"
+            android:background="#000000"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/img_snap"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:contentDescription="@string/btn_play_clip"
+                android:scaleType="fitCenter"/>
+
+            <TextureView
+                android:id="@+id/video_view"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:visibility="gone"/>
+
+            <!-- 报警联动房间标签(左上角): 有绑定房间名时显示 -->
+            <TextView
+                android:id="@+id/txt_room"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="start|top"
+                android:layout_marginLeft="8dp"
+                android:layout_marginTop="8dp"
+                android:background="#B3E74C3C"
+                android:paddingLeft="10dp"
+                android:paddingRight="10dp"
+                android:paddingTop="3dp"
+                android:paddingBottom="3dp"
+                android:text="房间: --"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:singleLine="true"
+                android:ellipsize="end"
+                android:visibility="gone"/>
+
+            <!-- HLS直播角标(右上角): 仅直播播放中显示 -->
+            <TextView
+                android:id="@+id/txt_live_badge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="end|top"
+                android:layout_marginRight="8dp"
+                android:layout_marginTop="8dp"
+                android:background="#66000000"
+                android:paddingLeft="10dp"
+                android:paddingRight="10dp"
+                android:paddingTop="3dp"
+                android:paddingBottom="3dp"
+                android:text="● 实时"
+                android:textColor="#2ECC71"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:visibility="gone"/>
+
+            <!-- 相机剪辑切换tab: 多摄像头剪辑时置顶显示, 点击切换回放 -->
+            <HorizontalScrollView
+                android:id="@+id/clip_tabs_scroll"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:scrollbars="none"
+                android:background="#66000000"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:id="@+id/clip_tabs"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"/>
+            </HorizontalScrollView>
+
+            <TextView
+                android:id="@+id/btn_play"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:background="#99000000"
+                android:paddingLeft="22dp"
+                android:paddingRight="22dp"
+                android:paddingTop="10dp"
+                android:paddingBottom="10dp"
+                android:text="@string/btn_play_clip"
+                android:textColor="#FFFFFF"
+                android:textSize="15sp"
+                android:textStyle="bold"/>
+        </FrameLayout>
+
         <com.hrmlink.hrbubble.HeartWaveView
             android:id="@+id/wave"
             android:layout_width="match_parent"

@@ -90,11 +90,14 @@ class HeartRateMonitorUI(QWidget):
         """心率数据更新：追加记录并刷新波形"""
         self.heart_rate_display.append(f"[{timestamp}] 心率: {heart_rate} BPM")
         # 限制文本显示的最大行数，防止内存溢出
-        if self.heart_rate_display.document().blockCount() > self.max_display_lines:
-            # 删除最旧的行
+        # 按差值循环清理: 单次append可能净增多行, 只删1块会慢泄漏, 必须循环删到不超过上限
+        doc = self.heart_rate_display.document()
+        while doc.blockCount() > self.max_display_lines:
+            # 从文档起点选中"超出数"个块(跨块选中含块分隔符), 一次性删除最旧的多个块
             cursor = self.heart_rate_display.textCursor()
             cursor.movePosition(cursor.Start)
-            cursor.select(cursor.BlockUnderCursor)
+            cursor.movePosition(cursor.NextBlock, cursor.KeepAnchor,
+                                doc.blockCount() - self.max_display_lines)
             cursor.removeSelectedText()
         self.waveform.add_heart_rate(heart_rate)
 
@@ -120,10 +123,12 @@ class HeartRateMonitorUI(QWidget):
 
 class DeviceConnectionUI(QVBoxLayout):
     heart_rate_updated = pyqtSignal(int)
+    hr_from_relay = pyqtSignal(str, int)  # ESP32中继心率中转信号(hub线程emit自动排队到GUI线程)
     status_changed = pyqtSignal(str)
     upd_lastST = pyqtSignal(str)
     set_act_Devstatus = pyqtSignal(str)
     reconnect_status = pyqtSignal(str)  # 智能重连状态文本(中继到Tailscale数据服务info字段, 空串=清除)
+    reconnect_abandoned = pyqtSignal(str)  # 智能重连多轮未果放弃(携带设备名, 供主窗口推送提醒)
     DEVICE_DATA_ROLE = Qt.UserRole + 1
 
     @property
@@ -141,6 +146,17 @@ class DeviceConnectionUI(QVBoxLayout):
         super().__init__()
         self.ble_monitor = BLEHeartRateMonitor()
         self.ble_monitor.heart_rate_callback = self.on_heart_rate_update
+        # ESP32中继: 注册统一心率入口(中继数据走与直连相同的下游波形/日志/推送),
+        # 并提供PC直连状态探测供中继仲裁做互斥(手环同一时刻只能被一台设备连接)
+        try:
+            import relay_hub
+            # 中继回调发生在hub线程, 经信号中转排队到GUI线程执行, 禁止跨线程直调Qt控件
+            self.hr_from_relay.connect(self.on_heart_rate_update)
+            relay_hub.set_hr_callback(self.hr_from_relay.emit)
+            relay_hub.set_direct_check(lambda: bool(
+                getattr(getattr(self.ble_monitor, "client", None), "is_connected", False)))
+        except Exception as _e:
+            logger.warning(f"ESP32中继入口注册失败(不影响直连): {_e}")
         self.status_label = status_label
         self.linking = False
         self.quit_ = False
@@ -162,6 +178,10 @@ class DeviceConnectionUI(QVBoxLayout):
         self.current_favorite_index = 0  # 当前尝试的收藏设备索引
         self.reconnect_active = False  # 重连是否激活
         self.heart_rate_received = False  # 是否成功获取心率数据
+        self._reconnect_next_scheduled = False  # 重连续约定时器在途标志(防重复安排)
+        self._auto_disconnect_timer = None  # 自动断开定时器(保存引用可取消, 防误断重连后的新会话)
+        self._scanning = False  # 扫描重入保护(适配器假死时discover挂起, 定时器会叠加扫描任务)
+        self._disconnect_done = True  # 断开流程完成标志(退出清理等待用)
         # 收藏的设备列表
         favorite_devices_str = self._get_set("favorite_devices", "[]", str)
         try:
@@ -352,6 +372,7 @@ class DeviceConnectionUI(QVBoxLayout):
         self.reconnect_rounds = 0  # 完整轮询候选设备的轮数(达上限自动停止)
         self.current_favorite_index = 0
         self.heart_rate_received = False
+        self._reconnect_next_scheduled = False
 
         # 重连候选: 最后连接的设备优先(非收藏设备断开后也能重连), 其后为收藏设备(去重)
         self.reconnect_candidates = []
@@ -376,6 +397,9 @@ class DeviceConnectionUI(QVBoxLayout):
 
     def try_connect_next_favorite(self):
         """尝试连接下一个重连候选设备"""
+        # 重连已停用(手动连接成功/手动断开)时忽略到期的续约, 防孤儿定时器重启链条
+        if not self.reconnect_active:
+            return
         # 检查是否成功获取心率数据
         if self.heart_rate_received:
             logger.info("已成功获取心率数据，停止智能重连")
@@ -403,8 +427,8 @@ class DeviceConnectionUI(QVBoxLayout):
             self.status_label.setText(f"智能重连中... (第{self.reconnect_count}次) - 尝试设备 {self.current_favorite_index + 1}/{len(self.reconnect_candidates)}")
             self.reconnect_status.emit(f"智能重连中... (第{self.reconnect_count}次) - 尝试设备 {self.current_favorite_index + 1}/{len(self.reconnect_candidates)}")
 
-            # 尝试连接
-            asyncio.ensure_future(self.connect_device())
+            # 尝试连接(包装协程: 补齐connect_device无法续约的死角, 保证"一直尝试直到连上")
+            asyncio.ensure_future(self._reconnect_attempt())
         else:
             # 所有候选设备都尝试过了
             self.reconnect_rounds += 1
@@ -413,6 +437,8 @@ class DeviceConnectionUI(QVBoxLayout):
                 logger.warning(f"智能重连已连续{self.reconnect_rounds}轮未成功, 停止重连")
                 self.status_label.setText("智能重连已停止(多轮未成功), 请手动连接")
                 self.reconnect_status.emit("智能重连已停止(多轮未成功), 请手动连接")
+                # 放弃重连=监护中断: 发信号给主窗口经推送渠道主动提醒用户
+                self.reconnect_abandoned.emit((self.last_connected_device or {}).get("name", ""))
                 self.stop_smart_reconnect()
                 return
             logger.info(f"所有候选设备都已尝试({self.reconnect_rounds}/{self.MAX_RECONNECT_ROUNDS}轮)，等待设备重新出现...")
@@ -433,11 +459,41 @@ class DeviceConnectionUI(QVBoxLayout):
         self.current_favorite_index = 0
         logger.info("继续智能重连，从头开始尝试收藏设备")
         self.try_connect_next_favorite()
+
+    def _schedule_reconnect_next(self):
+        """智能重连续约唯一出口: 前进到下一候选并按间隔延时重试(在途标志防重复安排)"""
+        if not self.reconnect_active or self._reconnect_next_scheduled:
+            return
+        self._reconnect_next_scheduled = True
+        self.current_favorite_index += 1
+        QTimer.singleShot(self.reconnect_delay * 1000, self._reconnect_next)
+
+    def _reconnect_next(self):
+        """续约定时器到期: 清除在途标志后继续轮转"""
+        self._reconnect_next_scheduled = False
+        self.try_connect_next_favorite()
+
+    async def _reconnect_attempt(self):
+        """智能重连单次尝试包装: 补齐connect_device正常返回却未续约的死角
+        (success=False服务校验失败无异常不续约 / 调用被linking拒绝直接return),
+        保证重连链"一直尝试直到连上"不因这些路径停摆"""
+        try:
+            await self.connect_device()
+        except Exception as e:
+            logger.error(f"智能重连尝试异常: {e}", exc_info=True)
+        if self.reconnect_active and not self._reconnect_next_scheduled:
+            self._schedule_reconnect_next()
     
     def stop_smart_reconnect(self, success=False):
         """停止智能重连 (success=True 表示因成功获取心率而停止, 中继端清除重连状态)"""
         self.reconnect_active = False
         self.heart_rate_received = False
+        self._reconnect_next_scheduled = False  # 在途续约标志复位(孤儿singleShot到期由active检查拦截)
+
+        # 同时取消自动断开定时器: 重连成功/手动断开后, 旧会话的定时器不得误断新会话
+        if self._auto_disconnect_timer:
+            self._auto_disconnect_timer.stop()
+            self._auto_disconnect_timer = None
 
         if self.reconnect_timer:
             self.reconnect_timer.stop()
@@ -452,6 +508,17 @@ class DeviceConnectionUI(QVBoxLayout):
 
     def filter_empty(self, state):
             self.ble_monitor.filter_empty = state
+
+    @staticmethod
+    def _rssi_level(rssi: int) -> tuple:
+        """RSSI(dBm)转(信号格, 等级文字): -50以上优秀/-65良好/-80一般/其余较弱"""
+        if rssi >= -50:
+            return "▂▄▆█", "优秀"
+        if rssi >= -65:
+            return "▂▄▆", "良好"
+        if rssi >= -80:
+            return "▂▄", "一般"
+        return "▂", "较弱"
 
     def on_device_selected(self, item):
         """处理设备选择事件"""
@@ -495,6 +562,10 @@ class DeviceConnectionUI(QVBoxLayout):
         """扫描BLE设备"""
         # 保存当前选择状态
         if not self.usedevlist: return
+        # 扫描重入保护: 适配器假死导致discover挂起时, 10秒定时器会不断叠加扫描任务
+        if self._scanning:
+            return
+        self._scanning = True
         current_address = self.selected_device["address"] if self.selected_device else None
         
         # 获取最后连接的设备地址，用于自动重连
@@ -513,12 +584,19 @@ class DeviceConnectionUI(QVBoxLayout):
             for device in devices:
                 # 检查是否是收藏的设备
                 is_favorite = any(fav["address"] == device.address for fav in self.favorite_devices)
-                
+
+                # 信号强度(RSSI, 平滑值)显示: dBm数值+信号格+等级文字, 拼在地址括号之后
+                rssi = self.ble_monitor.rssi_map.get(device.address)
+                rssi_text = ""
+                if rssi is not None:
+                    bar, level = self._rssi_level(rssi)
+                    rssi_text = f"  {rssi} dBm {bar} {level}"
+
                 # 如果是收藏设备，添加星标
                 if is_favorite:
-                    item_text = f"★ {device.name} ({device.address})"
+                    item_text = f"★ {device.name} ({device.address}){rssi_text}"
                 else:
-                    item_text = f"{device.name} ({device.address})"
+                    item_text = f"{device.name} ({device.address}){rssi_text}"
                     
                 item = QListWidgetItem(item_text)
                 item.setData(self.DEVICE_DATA_ROLE, item_text)  # 存储原始文本
@@ -602,6 +680,8 @@ class DeviceConnectionUI(QVBoxLayout):
         except Exception as e:
             self.device_list_status.setText(f"扫描错误: {str(e)}")
             logger.error(f"扫描BLE设备错误: {e}", exc_info=True)
+        finally:
+            self._scanning = False
 
     async def use_for_auto_connect(self):
         """自动连接"""
@@ -622,8 +702,10 @@ class DeviceConnectionUI(QVBoxLayout):
         if not self.selected_device:
             self.status_label.setText("请先选择设备")
             return
-        # 如果正在连接，则返回
-        if self.linking: return
+        # 如果正在连接，则返回(重连链的调用被并发连接抢占时也续约, 防链条停摆)
+        if self.linking:
+            self._schedule_reconnect_next()
+            return
 
         device_name = self.selected_device["name"]
         device_address = self.selected_device["address"]
@@ -658,7 +740,13 @@ class DeviceConnectionUI(QVBoxLayout):
                 duration = self.duration_spin.value()
                 logger.info(f"自动断开时间 {duration} 秒(0表示不自动断开)")
                 if duration > 0:
-                    QTimer.singleShot(duration * 1000, self.disconnect_device)
+                    # 保存定时器引用(stop_smart_reconnect在断开/重连成功时取消), 防旧定时器误断新会话
+                    if self._auto_disconnect_timer:
+                        self._auto_disconnect_timer.stop()
+                    self._auto_disconnect_timer = QTimer()
+                    self._auto_disconnect_timer.setSingleShot(True)
+                    self._auto_disconnect_timer.timeout.connect(self.disconnect_device)
+                    self._auto_disconnect_timer.start(duration * 1000)
 
         # 链接设备时错误处理===========
         #
@@ -666,10 +754,8 @@ class DeviceConnectionUI(QVBoxLayout):
             self.status_label.setText(f"未找到设备 {device_name}")
             self.reconnect_status.emit(f"未找到设备 {device_name}")
             logger.error(f"未找到设备 {device_name}")
-            # 如果是智能重连模式，继续尝试下一个设备
-            if self.reconnect_active:
-                self.current_favorite_index += 1
-                QTimer.singleShot(self.reconnect_delay * 1000, self.try_connect_next_favorite)
+            # 如果是智能重连模式，继续尝试下一个设备(统一续约出口: 内部含active检查与在途标志防重)
+            self._schedule_reconnect_next()
         except BleakError as e:
             if "Could not get GATT services: Unreachable" in str(e):
                 self.status_label.setText(f"设备GATT服务不可用, 请尝试重新启动设备心率广播功能")
@@ -679,10 +765,8 @@ class DeviceConnectionUI(QVBoxLayout):
                 self.reconnect_status.emit(f"连接错误: {str(e)}")
             self.heart_rate_display.append(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 连接失败: {str(e)}")
             logger.error(f"连接设备时出错: {e}", exc_info=True)
-            # 如果是智能重连模式，继续尝试下一个设备
-            if self.reconnect_active:
-                self.current_favorite_index += 1
-                QTimer.singleShot(self.reconnect_delay * 1000, self.try_connect_next_favorite)
+            # 如果是智能重连模式，继续尝试下一个设备(统一续约出口: 内部含active检查与在途标志防重)
+            self._schedule_reconnect_next()
         except OSError as e:
             if e.winerror == -2147023673:
                 self.status_label.setText(f"链接请求被中断({e.winerror})")
@@ -694,19 +778,15 @@ class DeviceConnectionUI(QVBoxLayout):
                 self.reconnect_status.emit(f"连接错误: {str(e)}")
                 self.heart_rate_display.append(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 链接错误: {str(e)}")
                 logger.error(f"连接设备时出错: {e}", exc_info=True)
-            # 如果是智能重连模式，继续尝试下一个设备
-            if self.reconnect_active:
-                self.current_favorite_index += 1
-                QTimer.singleShot(self.reconnect_delay * 1000, self.try_connect_next_favorite)
+            # 如果是智能重连模式，继续尝试下一个设备(统一续约出口: 内部含active检查与在途标志防重)
+            self._schedule_reconnect_next()
         except Exception as e:
             self.status_label.setText(f"连接错误: {str(e)}")
             self.reconnect_status.emit(f"连接错误: {str(e)}")
             self.heart_rate_display.append(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 连接失败: {str(e)}")
             logger.error(f"连接设备时出错: {e}", exc_info=True)
-            # 如果是智能重连模式，继续尝试下一个设备
-            if self.reconnect_active:
-                self.current_favorite_index += 1
-                QTimer.singleShot(self.reconnect_delay * 1000, self.try_connect_next_favorite)
+            # 如果是智能重连模式，继续尝试下一个设备(统一续约出口: 内部含active检查与在途标志防重)
+            self._schedule_reconnect_next()
         #
         # =============================
 
@@ -719,7 +799,7 @@ class DeviceConnectionUI(QVBoxLayout):
     @asyncSlot()
     async def disconnect_device(self):
         """断开当前连接"""
-        @try_except('断开连接错误',self.disconnect_error)
+        @try_except('断开连接错误', self.disconnect_error, exit_=False)
         async def disconnect():
             self.disconnect_button.setEnabled(False)
             self.quit_ = True
@@ -768,6 +848,10 @@ class DeviceConnectionUI(QVBoxLayout):
                 self.reconnect_status.emit("断开连接失败")
             self.quit_ = False
         await disconnect()
+        # try_except已捕获全部异常(exit_=False不再sys.exit): 此处必达。
+        # 复位quit_防异常路径卡死UI状态机, 并置完成标志供退出清理等待
+        self.quit_ = False
+        self._disconnect_done = True
 
     def update_ui(self):
         """更新UI状态"""

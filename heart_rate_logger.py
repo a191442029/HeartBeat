@@ -61,6 +61,8 @@ class HeartRateLogger:
         
         # 如果日期变更或者是第一次写入
         if self.current_date != today:
+            # 切换文件前先把缓冲数据写入旧日期文件, 防跨零点数据被归入新日期文件
+            self._flush_buffer()
             # 关闭旧文件
             if self.csv_file_handle:
                 try:

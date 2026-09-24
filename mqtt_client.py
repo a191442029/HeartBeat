@@ -1,6 +1,7 @@
 import paho.mqtt.client as mqtt
 import json
 import time
+import socket
 import threading
 from system_utils import logger
 
@@ -51,8 +52,14 @@ class MQTTClient:
             self.client.on_connect = self.on_connect
             self.client.on_disconnect = self.on_disconnect
             
-            # 连接到服务器
-            self.client.connect(self.config["broker"], self.config["port"], 60)
+            # 连接到服务器(临时限制socket超时: paho同步connect无超时参数,
+            # broker不可达时会长时间阻塞调用它的Qt主线程)
+            _old_timeout = socket.getdefaulttimeout()
+            socket.setdefaulttimeout(5)
+            try:
+                self.client.connect(self.config["broker"], self.config["port"], 60)
+            finally:
+                socket.setdefaulttimeout(_old_timeout)
             
             # 启动后台线程
             self.client.loop_start()
@@ -71,13 +78,12 @@ class MQTTClient:
         if self.client:
             self.stop_reconnect = True
             
-            # 等待重连线程停止，增加超时时间并多次尝试
+            # 等待重连线程退出: 只短暂join(1.5秒), 避免与BLE/WS退出等待叠加导致UI冻结可达9秒;
+            # 重连线程是daemon线程, 超时未退出也会随后台进程自然消亡, 不影响安全退出
             if self.reconnect_thread and self.reconnect_thread.is_alive():
-                for _ in range(5):  # 最多等待5秒
-                    self.reconnect_thread.join(timeout=1.0)
-                    if not self.reconnect_thread.is_alive():
-                        break
-                    logger.info(f"等待重连线程停止... ({_+1}/5)")
+                self.reconnect_thread.join(timeout=1.5)
+                if self.reconnect_thread.is_alive():
+                    logger.info("等待MQTT重连线程退出超时, 继续执行退出流程")
             
             try:
                 self.client.loop_stop()

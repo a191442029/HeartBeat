@@ -16,7 +16,7 @@ except Exception:
 import system_utils_ascii as system_utils
 system_utils.IS_FROZEN = IS_FROZEN = getattr(sys, 'frozen', False) or hasattr(sys, "_MEIPASS") or ("__compiled__" in globals())
 
-VER2 = (1, 0, 2, 0)
+VER2 = (1, 1, 0, 0)
 BINARY_BUILD = 1
 v1      = "v" + ".".join(map(str, VER2[0:3]))
 F_      = ""   # v1.0.1 起为正式版发布(无 -beta 后缀); Fvname 同时用作 release tag
@@ -99,7 +99,7 @@ else:
                 ,"version": 2
                 ,"VER2": VER2
                 ,"updateTime": "2026-09-19-19:58:00"
-                ,"gxjs": "状态提示同步: 断连/连接过程/失败原因实时同步到安卓接收端波形上方显示"
+                ,"gxjs": "新增历史报警剪辑清理策略(按保留天数/按空间上限, 手动可调+报警后自动执行)"
                 ,"index": f"https://github.com/a191442029/HeartBeat/releases/{Fvname}"
                 ,"download": f"https://github.com/a191442029/HeartBeat/releases/download/{Fvname}/HRMLink.exe"
             }

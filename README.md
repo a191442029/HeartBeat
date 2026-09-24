@@ -73,6 +73,7 @@
 |---|---|---|
 | **HRMLink** | Windows 电脑（我的 NUC 跑的就是它） | 连手环、收心率、画波形、判断异常、发通知 |
 | **HRHub** | 安卓设备（手机/平板/盒子） | 和 HRMLink 干一样的活，没电脑也能用安卓设备顶上 |
+| **HRHub** | 鸿蒙设备 | 鸿蒙版接收端：Tailscale 组网 + BLE 心率 + 悬浮气泡，功能对齐安卓接收端 |
 | **HRBubble** | 安卓设备（我家跑在 Duotel 盒子上） | 只管显示：连上服务端，悬浮气泡实时显示心率 |
 
 > 服务端二选一：有闲置电脑就用 HRMLink，没电脑就找个安卓设备跑 HRHub；HRBubble 配哪个都行。
@@ -125,6 +126,14 @@
 - 敏感配置（桌面端 MQTT 密码 / InfluxDB Token）使用 Windows DPAPI 加密存储
 - 桌面端系统托盘常驻、开机自启、自动检查更新
 
+## 最新更新 v1.1.1（2026-09-25）
+
+- **报警视频联动**：心率报警时，自动把报警房间绑定的摄像头画面推送到接收端（房间→摄像头绑定在桌面端"摄像头"页配置）
+- **HLS 实时直播**：报警联动支持真直播流（640×360@15fps H.264，约 400kbps），直播失败自动回退快照轮询，1G 内存的接收端也带得动
+- **ESP32 中继信号标定**：可标定各节点 RSSI 硬件偏差，仲裁选路更准（桌面端"ESP32中继"页）
+- **小爱音箱**：登录错误提示友好化（密码错误/验证码风控等）
+- 三端（EXE / 安卓接收端 / 鸿蒙接收端）版本同步 1.1.1
+
 ## 下载与运行
 
 ### 桌面端 HRMLink
@@ -132,7 +141,7 @@
 - 优点：随时可以检查与修改代码
 - 缺点：运行环境需要自己配置
 
-**方法 2**（推荐）：下载编译好的程序 —— 前往 [Releases 页面](https://github.com/a191442029/HeartBeat/releases/latest) 下载 `HRMLink.exe`，双击运行
+**方法 2**（推荐）：下载编译好的程序 —— 前往 [Releases 页面](https://github.com/a191442029/HeartBeat/releases/latest) 下载 `HRMLink-v1.1.1.exe`，双击运行
 - 优点：门槛低，单文件双击即可运行
 - 缺点：相对不太透明，exe 体积较大
 
@@ -145,10 +154,13 @@ pip install pyqt5 qasync bleak paho-mqtt influxdb-client aiohttp
 pip install matplotlib numpy    # 数据分析/可视化脚本需要（可选）
 ```
 
-### 安卓端 HRHub / HRBubble
-从 [Releases 页面](https://github.com/a191442029/HeartBeat/releases/latest) 下载 APK 侧载安装（Android 8.0+）：
+### 安卓端 / 鸿蒙端
+从 [Releases 页面](https://github.com/a191442029/HeartBeat/releases/latest) 下载侧载安装：
+- `HRBubble-v1.1.1-hls-live.apk` —— 安卓接收端（Android 8.0+）
 - `HRHub-1.0.0.apk` —— 安卓服务端
-- `HRBubble-1.0.0.apk` —— 安卓接收端
+- `HRHub-v1.1.1.hap` —— 鸿蒙接收端（HarmonyOS）
+
+鸿蒙 HAP 侧载：需要用 DevEco Studio 的 hdc 工具安装（`hdc install HRHub-v1.1.1.hap`）。
 
 ## 怎么搭一套（两种玩法）
 

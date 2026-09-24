@@ -16,8 +16,8 @@ android {
         applicationId "com.hrmlink.hrbubble"
         minSdk 26          // Android 8.0 起点
         targetSdk 28       // 避免更高版本对悬浮窗/前台服务的额外收紧; 侧载安装无限制
-        versionCode 3
-        versionName "1.0.1"
+        versionCode 8
+        versionName "1.1.1"
     }
 
     // 产物自动命名: HRBubble-1.0.0.apk (对齐服务端 HRHub-*.apk 风格)

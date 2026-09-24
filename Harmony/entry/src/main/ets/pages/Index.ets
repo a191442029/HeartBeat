@@ -1,7 +1,8 @@
-import { vpnExtension } from '@kit.NetworkKit';
+import { vpnExtension, http } from '@kit.NetworkKit';
 import { preferences } from '@kit.ArkData';
 import { fileIo as fs } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
+import { image } from '@kit.ImageKit';
 import type Want from '@ohos.app.ability.Want';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { common } from '@kit.AbilityKit';
@@ -46,6 +47,10 @@ interface HrPayload {
   device?: string;
   info?: string;
   alarm?: boolean;
+  clip_url?: string;
+  alarm_cam?: string;  // 报警视频联动: 报警房间绑定摄像头名(空=未绑定用默认)
+  alarm_room?: string; // 报警视频联动: 报警房间名(节点名/PC, 空=未知)
+  alarm_live?: string; // 期5: 报警房间摄像头HLS实时流m3u8地址(空=未就绪, 走快照轮询)
 }
 
 // 扩展进程写入 hr_data.json 的结构(推送字段 + 本地元数据)
@@ -105,7 +110,21 @@ struct Index {
   @State hrTime: string = '--:--:--';
   @State hrInfo: string = '';
   @State hrAlarm: boolean = false;
+  @State alarmCanceled: boolean = false; // 本次报警已被用户取消(周期内不再响, alarm=false复位)
   @State gotData: boolean = false; // 最近是否收到过有效心率(区分黄点)
+
+  // ---- 期3 报警视频面板(安卓同款交互) ----
+  @State videoMode: boolean = false;   // 报警中: 波形区替换为摄像头画面
+  @State playingClip: boolean = false; // 正在播放报警前20秒剪辑
+  @State snapPixel: image.PixelMap | null = null; // 默认摄像头实时快照(2fps轮询)
+  @State clipUrl: string = '';         // EXE推送的剪辑地址(空=尚未成型)
+  @State alarmRoom: string = '';       // 报警视频联动: 报警房间名(面板左上显示)
+  private alarmCam: string = '';       // 报警视频联动: 报警房间绑定摄像头名(空=默认)
+  // ---- 期5 HLS实时流(AVPlayer直播, 快照作兜底) ----
+  @State playingLive: boolean = false; // 正在播放HLS实时流
+  private liveUrl: string = '';        // EXE推送的m3u8直播地址(空=未就绪)
+  private liveRetry: number = 0;       // 直播失败重试次数(≤5次, 覆盖EXE起流冷启动)
+  private liveTimerId: number = -1;    // 重试延迟定时器
 
   private filesDir: string = '';
   private statusTimerId: number = -1;
@@ -124,6 +143,11 @@ struct Index {
   // 报警音(EXE 远程报警, 安卓 AlarmPlayer 同款语义)
   private alarmPlayer: media.AVPlayer | null = null;
   private alarmStopTimer: number = -1;
+
+  // 期3 报警视频面板: 快照轮询定时器 + 剪辑播放器(单实例) + XComponent surfaceId
+  private snapTimerId: number = -1;
+  private clipPlayer: media.AVPlayer | null = null;
+  private surfaceId: string = '';
 
   aboutToAppear(): void {
     this.loadConfig();
@@ -147,6 +171,7 @@ struct Index {
     this.stopStatusPolling();
     this.stopClock();
     this.stopAlarmSound();
+    this.exitAlarmVideo();
   }
 
   // ---- 报警音(EXE 远程报警): alarm.mp3 闹钟音量流循环播放, 10 秒自动停; 幂等 ----
@@ -202,6 +227,251 @@ struct Index {
         // 忽略
       }
     }
+  }
+
+  // ==================== 期3 报警视频面板(安卓同款交互) ====================
+
+  /** 进入报警视频态: 波形区替换为摄像头画面(快照2fps轮询+回放按钮), 幂等 */
+  private enterAlarmVideo(): void {
+    if (this.videoMode) {
+      return;
+    }
+    this.videoMode = true;
+    // 期5: HLS直播地址已就绪则直接开播, 否则先快照轮询(地址就绪后自动切入)
+    if (this.liveUrl !== '') {
+      this.tryLivePlayback();
+    } else {
+      this.startSnapPolling();
+    }
+  }
+
+  /** 退出报警视频态: 销毁播放器+停轮询, 恢复波形(取消报警/报警结束) */
+  private exitAlarmVideo(): void {
+    if (!this.videoMode) {
+      return;
+    }
+    this.stopClipPlayback();
+    this.stopLivePlayback();
+    this.stopSnapPolling();
+    this.liveRetry = 0;
+    this.videoMode = false;
+    this.snapPixel = null;
+  }
+
+  private startSnapPolling(): void {
+    this.stopSnapPolling();
+    this.snapTimerId = setInterval(() => {
+      this.fetchSnapshot();
+    }, 500); // 2fps
+  }
+
+  private stopSnapPolling(): void {
+    if (this.snapTimerId !== -1) {
+      clearInterval(this.snapTimerId);
+      this.snapTimerId = -1;
+    }
+  }
+
+  /** 拉取报警房间绑定摄像头快照JPEG → PixelMap(走VPN访问EXE的Tailscale地址;
+   *  摄像头画面由EXE局域网取流解码, 接收端只访问EXE; 未绑定用默认摄像头) */
+  private fetchSnapshot(): void {
+    if (this.playingClip || this.playingLive || this.exeIp === '') {
+      return;
+    }
+    let url = `http://${this.exeIp}:${this.exePort}/camera/snapshot`;
+    if (this.alarmCam !== '') {
+      url += `?cam=${encodeURIComponent(this.alarmCam)}`;
+    }
+    const req = http.createHttp();
+    req.request(url, {
+      method: http.RequestMethod.GET,
+      connectTimeout: 2000,
+      readTimeout: 2000,
+      expectDataType: http.HttpDataType.ARRAY_BUFFER
+    }, (err: BusinessError, data: http.HttpResponse) => {
+      try {
+        if (!err && data.responseCode === 200 && data.result instanceof ArrayBuffer) {
+          image.createImageSource(data.result as ArrayBuffer).createPixelMap()
+            .then((pm: image.PixelMap) => {
+              this.snapPixel = pm;
+            })
+            .catch(() => {
+              // 解码失败忽略, 下轮重试
+            });
+        }
+      } finally {
+        req.destroy();
+      }
+    });
+  }
+
+  /** 回放按钮: 应用内AVPlayer流式播放剪辑(禁用系统播放器跳转, 单实例规则) */
+  private playClip(): void {
+    if (this.clipUrl === '') {
+      this.hrInfo = '报警片段尚未生成, 稍后再试';
+      return;
+    }
+    this.stopLivePlayback(); // 直播中先切出(共用单播放器实例)
+    this.stopSnapPolling();
+    this.playingClip = true; // 触发XComponent创建, onLoad拿到surfaceId后启动播放
+  }
+
+  private startClipPlayer(sid: string): void {
+    if (this.clipPlayer || sid === '') {
+      return; // 单实例规则: 已有播放器直接跳过
+    }
+    media.createAVPlayer().then((p: media.AVPlayer) => {
+      if (this.clipPlayer) {
+        p.release(); // 竞态保护: 已有实例则丢弃新建
+        return;
+      }
+      this.clipPlayer = p;
+      p.surfaceId = sid;
+      p.url = this.clipUrl;
+      p.on('stateChange', (state: media.AVPlayerState) => {
+        if (state === 'completed') {
+          // 播放结束: 销毁播放器, 面板切回实时画面(直播可用优先直播, 否则快照)
+          this.stopClipPlayback();
+          if (this.hrAlarm && this.videoMode && this.liveUrl !== '') {
+            this.tryLivePlayback();
+          } else {
+            this.startSnapPolling();
+          }
+        }
+      });
+      p.on('error', (_err: BusinessError) => {
+        this.stopClipPlayback();
+        if (this.hrAlarm && this.videoMode && this.liveUrl !== '') {
+          this.tryLivePlayback();
+        } else {
+          this.startSnapPolling();
+        }
+      });
+      p.prepare().then(() => {
+        if (this.clipPlayer === p) {
+          p.play();
+        }
+      }).catch(() => {
+        this.stopClipPlayback();
+        this.startSnapPolling();
+      });
+    }).catch(() => {
+      this.playingClip = false;
+      this.startSnapPolling();
+    });
+  }
+
+  /** 停止并销毁剪辑播放器(单实例: 先释放后置null, 再撤XComponent) */
+  private stopClipPlayback(): void {
+    const p = this.clipPlayer;
+    this.clipPlayer = null;
+    if (p) {
+      try {
+        p.off('stateChange');
+        p.off('error');
+      } catch (e) {
+        // 忽略
+      }
+      try {
+        p.stop();
+      } catch (e) {
+        // 忽略
+      }
+      try {
+        p.release();
+      } catch (e) {
+        // 忽略
+      }
+    }
+    this.playingClip = false;
+  }
+
+  // ==================== 期5 HLS实时流(AVPlayer直播, 快照作兜底) ====================
+
+  /** 切入HLS直播(地址就绪时调用; 幂等, 与剪辑回放互斥共用单播放器) */
+  private tryLivePlayback(): void {
+    if (this.playingLive || this.playingClip) {
+      return;
+    }
+    if (this.liveUrl === '' || !this.videoMode) {
+      return;
+    }
+    if (this.liveTimerId !== -1) {
+      clearTimeout(this.liveTimerId);
+      this.liveTimerId = -1;
+    }
+    this.stopSnapPolling();
+    this.playingLive = true; // 触发XComponent创建, onLoad拿到surfaceId后启动播放
+  }
+
+  private startLivePlayer(sid: string): void {
+    if (this.clipPlayer || sid === '') {
+      return; // 单实例规则: 已有播放器直接跳过
+    }
+    media.createAVPlayer().then((p: media.AVPlayer) => {
+      if (this.clipPlayer || !this.playingLive) {
+        p.release(); // 竞态保护: 已有实例/已切出则丢弃新建
+        return;
+      }
+      this.clipPlayer = p;
+      p.surfaceId = sid;
+      p.url = this.liveUrl; // m3u8直播地址(AVPlayer原生支持HLS)
+      p.on('stateChange', (state: media.AVPlayerState) => {
+        if (state === 'completed') {
+          // 直播流不该completed; 出现即EXE停流(报警已结束), 回退快照
+          this.fallbackToSnapshot();
+        }
+      });
+      p.on('error', (_err: BusinessError) => {
+        this.scheduleLiveRetry();
+      });
+      p.prepare().then(() => {
+        if (this.clipPlayer === p && this.playingLive) {
+          p.play();
+        }
+      }).catch(() => {
+        this.scheduleLiveRetry();
+      });
+    }).catch(() => {
+      this.scheduleLiveRetry();
+    });
+  }
+
+  /** 直播失败: 重试≤5次(间隔1.2秒, 覆盖EXE起流冷启动窗口), 超限回退快照;
+   *  重试等待期先用快照轮询顶上, 画面不中断 */
+  private scheduleLiveRetry(): void {
+    this.stopClipPlayback();
+    this.playingLive = false;
+    if (this.liveRetry >= 5 || !this.hrAlarm || this.liveUrl === '') {
+      this.liveRetry = 0;
+      this.startSnapPolling();
+      return;
+    }
+    this.liveRetry += 1;
+    this.startSnapPolling();
+    this.liveTimerId = setTimeout(() => {
+      this.liveTimerId = -1;
+      if (this.hrAlarm && this.videoMode) {
+        this.tryLivePlayback();
+      }
+    }, 1200);
+  }
+
+  /** 直播不可用/停流: 销毁播放器, 保持快照轮询 */
+  private fallbackToSnapshot(): void {
+    this.stopClipPlayback();
+    this.playingLive = false;
+    this.startSnapPolling();
+  }
+
+  /** 停止直播(共用clipPlayer实例; 撤重试定时器, playingLive复位) */
+  private stopLivePlayback(): void {
+    if (this.liveTimerId !== -1) {
+      clearTimeout(this.liveTimerId);
+      this.liveTimerId = -1;
+    }
+    this.playingLive = false;
+    this.stopClipPlayback();
   }
 
   // ==================== 配置 ====================
@@ -481,6 +751,11 @@ struct Index {
       if (Date.now() - ts > 6000) {
         this.dotColor = COL_DOT_TIMEOUT;
         this.statusText = '无数据（检查 EXE 推送服务）';
+        // 完全断更兜底(本页1Hz轮询天然节拍): 有过有效波形才滚, 每秒一格断点,
+        // 对齐安卓 scrollTask 兜底; EXE仅手表断流时由 hr=0 断流心跳驱动滚动
+        if (this.gotData) {
+          this.pushWave(0);
+        }
         return;
       }
       const hr = obj.heart_rate ?? 0;
@@ -496,17 +771,33 @@ struct Index {
       } else {
         this.hrColor = COL_DOT_TIMEOUT;
         this.dotColor = src === 'WS' ? COL_DOT_WS : COL_DOT_POLL;
+        // EXE断流心跳(hr=0, 手表断开/智能重连中): 滚动波形断点(示波器式, 安卓同款)
+        this.pushWave(0);
       }
       // 时间显示 EXE 数据包里的 timestamp(PC 侧生成), 仅取 HH:mm:ss
       const tsStr = obj.timestamp ?? '';
       this.hrTime = tsStr.length > 8 ? tsStr.substring(tsStr.length - 8) : '--:--:--';
       this.hrInfo = obj.info ?? '';
       this.hrAlarm = obj.alarm === true;
+      this.clipUrl = obj.clip_url ?? ''; // 期3: 报警剪辑地址(空=尚未成型)
+      this.alarmCam = obj.alarm_cam ?? ''; // 报警视频联动: 绑定摄像头名(空=默认摄像头)
+      this.alarmRoom = obj.alarm_room ?? ''; // 报警视频联动: 房间名(面板显示)
+      this.liveUrl = obj.alarm_live ?? ''; // 期5: HLS直播地址(EXE起流后异步到达)
       // 报警音: true=循环响铃(10秒自动停), false=立即停(安卓 AlarmPlayer 同款)
+      // alarmCanceled: 用户点"取消本次报警"后, 报警窗口期内后续 alarm=true 不再触发响铃
       if (this.hrAlarm) {
-        this.startAlarmSound();
+        if (!this.alarmCanceled) {
+          this.startAlarmSound();
+          this.enterAlarmVideo(); // 报警: 波形区切换为摄像头视频面板
+          // 期5: 直播地址就绪于报警之后(EXE异步起流), 到达即切入HLS直播
+          if (this.liveUrl !== '' && !this.playingLive && !this.playingClip) {
+            this.tryLivePlayback();
+          }
+        }
       } else {
+        this.alarmCanceled = false; // 本次报警周期结束, 复位取消标志(下次报警照常响)
         this.stopAlarmSound();
+        this.exitAlarmVideo(); // 报警结束: 销毁播放器/停轮询, 恢复波形
       }
     } catch (e) {
       // 文件不存在或未就绪, 保持现状
@@ -699,18 +990,35 @@ struct Index {
       .width('100%')
       .height('100%')
 
-      // 心率警报横幅(置顶悬浮)
-      if (this.hrAlarm && !this.editingSetup) {
-        Text('心率警报！')
-          .fontSize(16)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(Color.White)
-          .backgroundColor('#C62828')
-          .textAlign(TextAlign.Center)
-          .borderRadius(8)
-          .padding(10)
-          .width('80%')
-          .margin({ top: 60 })
+      // 心率警报横幅(置顶悬浮): 警报文字 + 取消本次报警按钮(点击停铃并隐藏, 周期内不再响)
+      if (this.hrAlarm && !this.alarmCanceled && !this.editingSetup) {
+        Row() {
+          Text('心率警报！')
+            .fontSize(16)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(Color.White)
+            .textAlign(TextAlign.Center)
+            .layoutWeight(1)
+          Divider()
+            .vertical(true)
+            .height(20)
+          Text('✕ 取消本次报警')
+            .fontSize(14)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(Color.White)
+            .padding({ left: 12, right: 4, top: 10, bottom: 10 })
+            .onClick(() => {
+              this.alarmCanceled = true;
+              this.stopAlarmSound();
+              this.exitAlarmVideo(); // 退出视频面板恢复波形
+            })
+        }
+        .alignItems(VerticalAlign.Center)
+        .backgroundColor('#C62828')
+        .borderRadius(8)
+        .padding({ left: 10, right: 10 })
+        .width('80%')
+        .margin({ top: 60 })
       }
     }
     .width('100%')
@@ -788,14 +1096,112 @@ struct Index {
             .textOverflow({ overflow: TextOverflow.Ellipsis })
         }
 
-        Canvas(this.waveCtx)
-          .onReady(() => {
-            this.waveReady = true;
-            this.drawWave();
-          })
+        // 报警中: 波形区替换为视频面板(房间标签+快照轮询+回放按钮+播放器); 平时: 波形
+        if (this.videoMode) {
+          Column() {
+            if (this.alarmRoom !== '') {
+              Text('房间: ' + this.alarmRoom)
+                .fontSize(13)
+                .fontWeight(FontWeight.Bold)
+                .fontColor('#E74C3C')
+                .margin({ left: 12, bottom: 2 })
+            }
+            Stack() {
+              if (this.snapPixel) {
+                Image(this.snapPixel)
+                  .objectFit(ImageFit.Contain)
+                  .width('100%')
+                  .height('100%')
+              } else {
+                Text('连接摄像头画面...')
+                  .fontSize(13)
+                  .fontColor(COL_DOT_TIMEOUT)
+              }
+              if (this.playingClip || this.playingLive) {
+                // 播放器复用: 剪辑回放与HLS直播共用同一XComponent/AVPlayer实例
+                XComponent({ id: 'clipPlayer', type: XComponentType.SURFACE })
+                  .onLoad((ctx?: object) => {
+                    if (ctx) {
+                      try {
+                        this.surfaceId = (ctx as XComponentController).getXComponentSurfaceId();
+                        if (this.playingClip) {
+                          this.startClipPlayer(this.surfaceId);
+                        } else {
+                          this.startLivePlayer(this.surfaceId);
+                        }
+                      } catch (e) {
+                        // surfaceId获取失败, 停留在快照态
+                      }
+                    }
+                  })
+                  .width('100%')
+                  .height('100%')
+              }
+              if (this.playingLive) {
+                // 直播态叠加层: 右上角标 + 右下回放按钮(直播时可随时回看报警前剪辑)
+                Column() {
+                  Row() {
+                    Blank()
+                    Text('● 实时')
+                      .fontSize(12)
+                      .fontColor(Color.White)
+                      .backgroundColor('#66000000')
+                      .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+                      .borderRadius(4)
+                      .margin(6)
+                  }
+                  .width('100%')
+                  Blank()
+                  Row() {
+                    Blank()
+                    if (this.clipUrl !== '') {
+                      Button('▶ 回放')
+                        .fontSize(13)
+                        .fontWeight(FontWeight.Bold)
+                        .fontColor(Color.White)
+                        .backgroundColor('#99000000')
+                        .padding({ left: 16, right: 16, top: 8, bottom: 8 })
+                        .margin(8)
+                        .onClick(() => {
+                          this.playClip();
+                        })
+                    }
+                  }
+                  .width('100%')
+                }
+                .width('100%')
+                .height('100%')
+              }
+              if (!this.playingClip && !this.playingLive) {
+                Button('▶ 回放')
+                  .fontSize(14)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor(Color.White)
+                  .backgroundColor('#99000000')
+                  .padding({ left: 22, right: 22, top: 10, bottom: 10 })
+                  .onClick(() => {
+                    this.playClip();
+                  })
+              }
+            }
+            .width('100%')
+            .height(160)
+            .margin({ top: 2, left: 12, right: 12 })
+            .backgroundColor('#000000')
+            .borderRadius(8)
+          }
           .width('100%')
-          .height(160)
-          .margin({ top: 8, left: 12, right: 12 })
+          .margin({ top: 8 })
+        } else {
+          Canvas(this.waveCtx)
+            .onReady(() => {
+              this.waveReady = true;
+              this.drawWave();
+            })
+            .width('100%')
+            .height(160)
+            .margin({ top: 8, left: 12, right: 12 })
+        }
       }
       .width('100%')
       .layoutWeight(1)

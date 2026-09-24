@@ -11,6 +11,7 @@ import ipaddress
 import json
 import socket
 import time
+from pathlib import Path
 
 from system_utils import logger
 
@@ -80,9 +81,16 @@ class WebPushServer:
         self.runner = None
         self.site = None
         self.clients = set()  # 当前连接的WS客户端
+        self._alarm_task = None  # 报警自动复位任务(重复报警时取消旧的, 防提前复位新报警)
+        self.stop_done = True    # 停止协程完成标志(退出清理等待用)
         # 最新状态快照(HTTP轮询/WS新连接共用)
         # info: 附加状态文本(如智能重连进度), 空串=无附加状态
         # alarm: 远程报警标志(true=接收端循环响铃, seconds后自动复位; 接收端收到false立即停铃)
+        # clip_url: 报警剪辑流式播放地址(剪辑成型后推送, 报警开始时清空防播旧片段)
+        # clips: 全量相机剪辑列表[{"cam","url"}](方案1, 接收端视频面板tab切换; 兼容旧版仅用clip_url)
+        # hr_source: 心率数据源状态(中继中枢推送, 接收端通知栏显示当前来源房间/PC)
+        # alarm_cam/alarm_room: 报警视频联动(报警房间绑定的摄像头名与房间名, 空=未绑定用默认)
+        # alarm_live: 报警房间摄像头HLS实时流m3u8地址(空=未就绪/不支持, 接收端回退快照轮询)
         self._state = {
             "heart_rate": 0,
             "timestamp": "",
@@ -90,7 +98,47 @@ class WebPushServer:
             "device": self.device_name,
             "info": "",
             "alarm": False,
+            "clip_url": "",
+            "clips": [],
+            "hr_source": {},
+            "alarm_cam": "",
+            "alarm_room": "",
+            "alarm_live": "",
         }
+        # 期3 报警视频联动: 摄像头管理器引用(快照接口用) + 报警起止回调(启停快照流)
+        self.camera_mgr = None
+        self.on_alarm_start = None
+        self.on_alarm_end = None
+
+    def set_camera_manager(self, mgr):
+        """注入CameraManager(/camera/snapshot 提供默认摄像头画面)"""
+        self.camera_mgr = mgr
+
+    def base_url(self) -> str:
+        return f"http://{self.host}:{self.port}"
+
+    def push_clip(self, clip_url: str, clips=None):
+        """报警剪辑成型: clip_url并入状态快照并广播(接收端显示回放按钮+相机tab)
+        clips=None保持现有列表不变, 传list则整体覆盖(方案1全量剪辑)"""
+        new_state = dict(self._state, clip_url=clip_url or "")
+        if clips is not None:
+            new_state["clips"] = list(clips)
+        self._state = new_state
+        self._schedule_broadcast()
+
+    def push_source(self, status: dict):
+        """中继数据源状态变化: hr_source并入状态快照并广播(接收端通知栏显示数据源)
+        由MainWindow经Qt信号中转到GUI线程后调用(hub线程不可直接进qasync)"""
+        self._state = dict(self._state, hr_source=status or {})
+        self._schedule_broadcast()
+
+    def set_live_url(self, url: str):
+        """报警HLS实时流地址就绪(或报警结束清空): 并入状态快照并广播
+        由MainWindow经Qt信号中转到GUI线程后调用"""
+        if url == self._state.get("alarm_live"):
+            return
+        self._state = dict(self._state, alarm_live=url or "")
+        self._schedule_broadcast()
 
     # ---------- 生命周期 ----------
     def start(self):
@@ -99,6 +147,7 @@ class WebPushServer:
 
     def stop(self):
         """调度到事件循环停止服务"""
+        self.stop_done = False
         asyncio.ensure_future(self._stop())
 
     async def _start(self):
@@ -108,6 +157,12 @@ class WebPushServer:
         app.router.add_get('/', self.handle_index)
         app.router.add_get('/api/heartrate', self.handle_api)
         app.router.add_get('/ws', self.handle_ws)
+        # 期3 报警视频联动: 快照轮询(报警期间2fps) + 剪辑流式播放(HTTP Range)
+        app.router.add_get('/camera/snapshot', self.handle_snapshot)
+        app.router.add_get('/camera/clip', self.handle_clip)
+        # 期5 HLS实时流: m3u8播放列表 + 分片(报警期间, 接收端AVPlayer直接播)
+        app.router.add_get('/camera/live/index.m3u8', self.handle_live_playlist)
+        app.router.add_get('/camera/live/segment.ts', self.handle_live_segment)
         self.runner = web.AppRunner(app, access_log=None)  # 轮询频率高, 关闭访问日志刷屏
         await self.runner.setup()
         self.site = web.TCPSite(self.runner, self.host, self.port)
@@ -138,6 +193,7 @@ class WebPushServer:
                 pass
         self.runner = None
         self.site = None
+        self.stop_done = True
         logger.info("Tailscale数据服务已停止")
 
     # ---------- 数据入口(Qt主线程直接调用, qasync下即loop线程) ----------
@@ -160,13 +216,21 @@ class WebPushServer:
         self._state = dict(self._state, info=info or "")
         self._schedule_broadcast()
 
-    def trigger_alarm(self, seconds=10):
+    def trigger_alarm(self, seconds=10, cam_name="", room=""):
         """远程报警: 快照alarm置true并广播(接收端开始响铃), seconds后自动复位false(接收端停铃)
+        cam_name/room: 报警视频联动(当前持有手环节点=房间→绑定摄像头), 空串=未绑定接收端用默认摄像头
         Qt主线程调用(qasync下即loop线程), ensure_future可直接调度"""
-        self._state = dict(self._state, alarm=True)
+        # 报警开始: 清空上一次的clip_url/clips/alarm_live(防止接收端误播旧流/旧片段) + 启动快照流回调
+        self._state = dict(self._state, alarm=True, clip_url="", clips=[],
+                           alarm_cam=cam_name or "", alarm_room=room or "",
+                           alarm_live="")
         self._schedule_broadcast()
+        self._fire(self.on_alarm_start)
         try:
-            asyncio.ensure_future(self._alarm_auto_clear(seconds))
+            # 重复报警: 先取消上一次的自动复位任务再起新的, 防旧任务提前把新报警复位为false
+            if self._alarm_task and not self._alarm_task.done():
+                self._alarm_task.cancel()
+            self._alarm_task = asyncio.ensure_future(self._alarm_auto_clear(seconds))
         except RuntimeError:
             self._state = dict(self._state, alarm=False)  # 无事件循环则不进入报警态
             self._schedule_broadcast()
@@ -175,10 +239,23 @@ class WebPushServer:
         """报警窗口到期: alarm复位false并广播, 接收端收到后停止响铃"""
         try:
             await asyncio.sleep(seconds)
-        finally:
+        except asyncio.CancelledError:
+            # 被新一次trigger_alarm取消: 报警仍在继续, 不复位不触发结束回调
+            raise
+        else:
             if self._state.get("alarm"):
                 self._state = dict(self._state, alarm=False)
                 self._schedule_broadcast()
+            self._fire(self.on_alarm_end)
+
+    @staticmethod
+    def _fire(cb, *args):
+        if cb is None:
+            return
+        try:
+            cb(*args)
+        except Exception as e:
+            logger.error(f"报警回调执行失败: {e}")
 
     def _schedule_broadcast(self):
         if self.running and self.clients:
@@ -218,8 +295,58 @@ class WebPushServer:
             self.clients.discard(ws)
         return ws
 
+    # ---------- 期3 报警视频联动路由 ----------
+    async def handle_snapshot(self, request):
+        """报警期间快照(手机2fps轮询JPEG); ?cam=按绑定房间联动摄像头取帧,
+        缺省/未知摄像头名回退默认摄像头; 帧未就绪返回503"""
+        mgr = self.camera_mgr
+        cam = request.query.get("cam", "")
+        if not mgr:
+            return web.json_response({"error": "no snapshot"}, status=503)
+        jpeg = mgr.snapshot_jpeg_by_name(cam) if cam else mgr.default_snapshot_jpeg()
+        if not jpeg:
+            return web.json_response({"error": "no snapshot"}, status=503)
+        return web.Response(body=jpeg, content_type="image/jpeg")
+
+    async def handle_clip(self, request):
+        """报警剪辑流式播放: 仅允许 captures/ 目录下的 .mp4(防路径穿越),
+        FileResponse 原生支持 HTTP Range(手机播放器拖动/边下边播)"""
+        from camera.stream_manager import CREATES_DIR
+        name = request.query.get("name", "")
+        if not name or "/" in name or "\\" in name or name != Path(name).name:
+            return web.json_response({"error": "bad name"}, status=400)
+        root = Path(CREATES_DIR).resolve()
+        path = (root / name).resolve()
+        if path.parent != root or path.suffix.lower() != ".mp4" or not path.is_file():
+            return web.json_response({"error": "not found"}, status=404)
+        return web.FileResponse(path, headers={"Content-Type": "video/mp4"})
+
     async def handle_index(self, request):
         return web.Response(text=INDEX_HTML, content_type='text/html', charset='utf-8')
+
+    # ---------- 期5 HLS实时流路由 ----------
+    async def handle_live_playlist(self, request):
+        """报警房间摄像头HLS m3u8播放列表(?cam=摄像头名); 流未运行/未就绪返回404"""
+        from camera.hls_stream import get_hls_manager
+        s = get_hls_manager().get(request.query.get("cam", ""))
+        p = s.playlist_path if s else None
+        if p is None or not p.is_file():
+            return web.json_response({"error": "no live"}, status=404)
+        return web.FileResponse(p, headers={
+            "Content-Type": "application/vnd.apple.mpegurl",
+            "Cache-Control": "no-cache"})
+
+    async def handle_live_segment(self, request):
+        """HLS分片(?cam=摄像头名&seg=seg_NNNNN.ts); 只允许白名单文件名(防路径穿越)"""
+        from camera.hls_stream import get_hls_manager, SEG_RE
+        seg = request.query.get("seg", "")
+        if not SEG_RE.match(seg):
+            return web.json_response({"error": "bad seg"}, status=400)
+        s = get_hls_manager().get(request.query.get("cam", ""))
+        p = s.segment_path(seg) if s else None
+        if p is None or not p.is_file():
+            return web.json_response({"error": "not found"}, status=404)
+        return web.FileResponse(p, headers={"Content-Type": "video/mp2t"})
 
 
 INDEX_HTML = """<!DOCTYPE html><html><head><meta charset="utf-8">

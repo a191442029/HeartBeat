@@ -6,6 +6,9 @@ import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.IntentFilter;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -41,6 +44,7 @@ public class HeartRateService extends Service {
     // 首页免绑定读取的运行态(旋转重建Activity后也能正确恢复按钮文案)
     public static volatile boolean sRunning = false;    // 服务存活
     public static volatile boolean sOverlayOn = false;  // 悬浮窗开关状态
+    private static volatile OkHttpClient sPollClient;   // 首页快照轮询复用(共享线程池, 少养一套)
 
     private OkHttpClient wsClient;   // WS长连接: 无读超时 + 20秒ping保活
     private OkHttpClient pollClient; // HTTP轮询: 4秒超时防挂死(由wsClient派生, 共享线程池)
@@ -51,12 +55,14 @@ public class HeartRateService extends Service {
     private String port = "8765";
 
     private OverlayManager overlay;
+    private BroadcastReceiver screenOnReceiver; // 亮屏广播: Doze后半开WS立即重建(不等心跳超时+退避)
     private final Handler main = new Handler(Looper.getMainLooper());
     private ScheduledExecutorService poller;
     private volatile ScheduledFuture<?> pollTask;
     private ScheduledFuture<?> pollDelayTask;
     private volatile long lastDataMs = 0;      // volatile: 32位ART上防long撕裂
     private volatile long lastFailNotifyMs = 0; // 失败广播节流: 状态变化立即报, 持续失败30秒一次
+    private volatile String lastSourceText = ""; // 通知当前显示的数据源文案(去重, 变化才刷新通知)
     private boolean watchdogRunning = false;
     private int backoffIdx = 0;
     private boolean connStarted = false; // 连接是否已建立(悬浮窗单独开启时据此决定是否顺带建连)
@@ -107,6 +113,31 @@ public class HeartRateService extends Service {
                 .readTimeout(4, TimeUnit.SECONDS)
                 .build();
         poller = Executors.newSingleThreadScheduledExecutor();
+        sPollClient = pollClient;
+
+        // 亮屏恢复加速: 息屏期间WS可能已半开(服务器已关闭/网络被Doze挂起),
+        // OkHttp心跳超时检测要等亮屏后10~30秒才触发onFailure。监听SCREEN_ON,
+        // 数据陈旧(>10秒)时立即取消旧连接并重连, 恢复空窗从~30秒缩到1~2秒。
+        screenOnReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if (pollOnly || !connStarted) return;
+                if (lastDataMs > 0 && System.currentTimeMillis() - lastDataMs > 10000) {
+                    main.post(() -> {
+                        if (ws == null) return; // 轮询/重连流程已在处理
+                        wsHealthy = false;
+                        closeWs();
+                        connectWs();
+                    });
+                }
+            }
+        };
+        registerReceiver(screenOnReceiver, new IntentFilter(Intent.ACTION_SCREEN_ON));
+    }
+
+    /** 首页报警快照轮询复用的HTTP客户端(服务未运行时返回null, 调用方自行判空跳过) */
+    public static OkHttpClient pollClientStatic() {
+        return sPollClient;
     }
 
     @Override
@@ -158,6 +189,13 @@ public class HeartRateService extends Service {
     public void onDestroy() {
         // 移除主线程全部待执行回调(看门狗+待触发WS重连), 防止停止服务后幽灵重连
         main.removeCallbacksAndMessages(null);
+        if (screenOnReceiver != null) {
+            try {
+                unregisterReceiver(screenOnReceiver);
+            } catch (Exception ignored) {
+            }
+            screenOnReceiver = null;
+        }
         closeWs();
         stopPolling();
         if (pollDelayTask != null) pollDelayTask.cancel(false);
@@ -170,6 +208,7 @@ public class HeartRateService extends Service {
         // OkHttp 3.x 关停: 两个client共享连接池/线程池, 关停一次即可
         wsClient.dispatcher().executorService().shutdown();
         wsClient.connectionPool().evictAll();
+        sPollClient = null;
         sendStatus("服务已停止");
         super.onDestroy();
     }
@@ -291,12 +330,31 @@ public class HeartRateService extends Service {
             boolean connected = "connected".equals(o.optString("status"));
             String info = o.optString("info", ""); // 附加状态(EXE智能重连进度), 空串=无
             String ts = o.optString("timestamp", ""); // EXE侧时间戳(PC生成), 随数据透传显示
+            String clipUrl = o.optString("clip_url", ""); // 报警剪辑流式播放地址(期3, 剪辑成型后才有值)
+            // 全量相机剪辑列表(EXE方案1): [{"cam":"卧室","url":"http://..."}], 供视频面板tab切换
+            org.json.JSONArray clips = o.optJSONArray("clips");
+            // 报警视频联动(2026-09-25): 绑定摄像头名/房间名/HLS直播地址(首分片就绪后异步推送, 报警开始时为空)
+            String alarmCam = o.optString("alarm_cam", "");
+            String alarmRoom = o.optString("alarm_room", "");
+            String liveUrl = o.optString("alarm_live", "");
             boolean alarm = o.optBoolean("alarm", false); // EXE远程报警: true=循环响铃, false=停铃
+            // 数据源状态(EXE快照顶层hr_source对象): 字段缺失/为null则跳过, 文案变化时静默刷新常驻通知
+            JSONObject src = o.optJSONObject("hr_source");
+            if (src != null) {
+                String sourceText = buildSourceText(src);
+                if (sourceText != null && !sourceText.equals(lastSourceText)) {
+                    lastSourceText = sourceText;
+                    // WS回调在非主线程, NotificationManager.notify()线程安全可直接调用
+                    NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                    nm.notify(1, buildNotification(host + ":" + port + " · " + sourceText));
+                }
+            }
             if (alarm) {
                 AlarmPlayer.play(this);
             } else {
                 AlarmPlayer.stop();
             }
+            overlay.setAlarm(alarm); // 悬浮窗报警态: true时气泡显示"取消报警"按钮
             lastDataMs = System.currentTimeMillis();
             timeoutNotified = false; // 数据恢复, 超时广播复位
             overlay.update(hr, connected, fromWs, fromWs ? "WS" : "HTTP", ts);
@@ -307,9 +365,39 @@ public class HeartRateService extends Service {
             d.putExtra("info", info);
             d.putExtra("src", fromWs ? "WS" : "HTTP");
             d.putExtra("timestamp", ts);
+            d.putExtra("alarm", alarm); // 报警态: 首页据此显示/隐藏"取消本次报警"按钮
+            d.putExtra("clip_url", clipUrl); // 期3: 报警剪辑回放地址(空=尚未成型)
+            if (clips != null && clips.length() > 0) {
+                d.putExtra("clips", clips.toString()); // 方案1: 全量相机剪辑JSON(tab切换)
+            }
+            d.putExtra("alarm_cam", alarmCam);   // 报警联动: 绑定摄像头名(快照URL带cam参数)
+            d.putExtra("alarm_room", alarmRoom); // 报警联动: 房间名(面板红色标签)
+            d.putExtra("alarm_live", liveUrl);   // 报警联动: HLS直播地址(空=首分片未就绪)
             sendBroadcast(d);
         } catch (Exception ignored) {
         }
+    }
+
+    /** hr_source对象 → 中文数据源文案; phase未知返回null(不动通知) */
+    private static String buildSourceText(JSONObject src) {
+        String phase = src.optString("phase", "");
+        String source = src.optString("source", "");
+        String target = src.optString("target", "");
+        int rssi = src.optInt("rssi", 0); // 负数=信号强度, 0/缺失=未知
+        if ("active".equals(phase)) {
+            // rssi为负数有效; 0表示未知强度则省略dBm
+            return rssi < 0 ? "数据源: " + source + " · " + rssi + "dBm"
+                            : "数据源: " + source;
+        }
+        if ("switching".equals(phase)) {
+            // 原节点与目标节点都已知才显示完整切换路径
+            return (!source.isEmpty() && !target.isEmpty())
+                    ? "切换中: " + source + " → " + target
+                    : "正在切换数据源…";
+        }
+        if ("direct".equals(phase)) return "数据源: PC直连";
+        if ("none".equals(phase)) return "数据源: 未连接";
+        return null;
     }
 
     private void startWatchdog() {
@@ -330,7 +418,9 @@ public class HeartRateService extends Service {
                 .setSmallIcon(R.drawable.ic_heart)
                 .setContentTitle("心率悬浮窗运行中")
                 .setContentText(text)
+                .setStyle(new Notification.BigTextStyle().bigText(text)) // 首行=地址 副行=数据源, 展开完整显示
                 .setOngoing(true)
+                .setOnlyAlertOnce(true) // 数据源变化属静默刷新, 不重复响铃/震动
                 .build();
     }
 
