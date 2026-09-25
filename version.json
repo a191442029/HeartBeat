@@ -1,14 +1,14 @@
 {
-  "name": "v1.1.2+code.0",
+  "name": "v1.1.3+code.0",
   "version": 2,
   "VER2": [
     1,
     1,
-    2,
+    3,
     0
   ],
-  "gxjs": "旧版Win10 BLE扫描兼容修复(bleak扩展广播属性降级), 版本号区分修复批次",
+  "gxjs": "启动早期扫描崩溃修复(bleak MTA检查脱离事件循环), 旧版Win10扫描兼容",
 
 
-  "frozen":{"name": "v1.1.2", "version": 2, "VER2": [1, 1, 2, 0], "updateTime": "2026-09-25-18:00:00", "gxjs": "修复旧版Win10扫描报 property is not available 错误: BLE扩展广播属性在Win10 2004以下自动跳过, 手环扫描不受影响; 与v1.1.1功能一致", "index": "https://github.com/a191442029/HeartBeat/releases/v1.1.2", "download": "https://github.com/a191442029/HeartBeat/releases/download/v1.1.2/HRMLink-v1.1.2.exe"}
+  "frozen":{"name": "v1.1.3", "version": 2, "VER2": [1, 1, 3, 0], "updateTime": "2026-09-25-21:00:00", "gxjs": "修复启动早期BLE扫描报 no running event loop 导致设备列表空的问题(bleak MTA检查兼容); 含v1.1.2旧版Win10扫描兼容修复", "index": "https://github.com/a191442029/HeartBeat/releases/v1.1.3", "download": "https://github.com/a191442029/HeartBeat/releases/download/v1.1.3/HRMLink-v1.1.3.exe"}
 }
