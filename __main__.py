@@ -16,7 +16,7 @@ except Exception:
 import system_utils_ascii as system_utils
 system_utils.IS_FROZEN = IS_FROZEN = getattr(sys, 'frozen', False) or hasattr(sys, "_MEIPASS") or ("__compiled__" in globals())
 
-VER2 = (1, 1, 1, 0)
+VER2 = (1, 1, 2, 0)
 BINARY_BUILD = 1
 v1      = "v" + ".".join(map(str, VER2[0:3]))
 F_      = ""   # v1.0.1 起为正式版发布(无 -beta 后缀); Fvname 同时用作 release tag
