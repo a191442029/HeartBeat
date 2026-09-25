@@ -5,7 +5,9 @@ a = Analysis(
     ['__main__.py'],
     pathex=[],
     binaries=[],
-    datas=[('bin/ffmpeg.exe', 'bin')],
+    # ffmpeg 已从 EXE 分离(v1.1.4起): 运行时由 camera.stream_manager.find_ffmpeg()
+    # 定位 EXE 同目录 bin\ffmpeg.exe (Release 提供独立下载), 减小单文件体积约90MB
+    datas=[],
     hiddenimports=['winrt.windows.foundation.collections', 'paho.mqtt.client', 'csv', 'pathlib', 'heart_rate_logger',
                    'miservice', 'miservice.miaccount', 'miservice.minaservice', 'miservice.miiocommand',
                    'miservice.miioservice', 'miservice.biohttp', 'xiaomi_tts', 'aiohttp'],
