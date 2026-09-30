@@ -458,4 +458,11 @@
         android:textSize="12sp"
         android:textColor="#999999"
         android:text="每条: 该时段内超限且持续设定秒数才推送, 各规则×过高/过低冷却独立; 多条同时命中按顺序取第一条; 上/下限0=不检测"/>
+
+    <Button
+        android:id="@+id/btn_trigger_alarm"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:text="触发测试报警 (演示全链路: 报警画面/剪辑/推送/响铃)"/>
 </LinearLayout>

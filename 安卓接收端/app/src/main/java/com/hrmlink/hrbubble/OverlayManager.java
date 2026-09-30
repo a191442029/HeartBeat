@@ -32,6 +32,7 @@ public class OverlayManager {
     private TextView hrText;
     private TextView srcText;
     private TextView timeText;
+    private TextView btnCancelAlarm; // 报警取消按钮(仅报警期间显示)
     private WindowManager.LayoutParams params;
     private boolean added = false;
     private boolean largeFont = false;
@@ -106,6 +107,16 @@ public class OverlayManager {
         return (sp >= 0 && sp < ts.length() - 1) ? ts.substring(sp + 1) : ts;
     }
 
+    /** 报警态(EXE远程报警): true时气泡显示"取消本次报警"按钮, false隐藏 (服务侧任意线程可安全调用) */
+    public void setAlarm(boolean on) {
+        mainHandler.post(() -> {
+            if (btnCancelAlarm == null) return;
+            // 报警中但已被用户取消 → 同样隐藏(与响铃状态一致)
+            boolean show = on && !AlarmPlayer.isCanceled();
+            btnCancelAlarm.setVisibility(show ? View.VISIBLE : View.GONE);
+        });
+    }
+
     private void setDotColor(int color) {
         GradientDrawable d = (GradientDrawable) dot.getBackground().mutate();
         d.setColor(color);
@@ -118,6 +129,13 @@ public class OverlayManager {
         hrText = bubble.findViewById(R.id.hr_text);
         srcText = bubble.findViewById(R.id.src_text);
         timeText = bubble.findViewById(R.id.time_text);
+        btnCancelAlarm = bubble.findViewById(R.id.btn_cancel_alarm);
+        // 取消本次报警: 立即停铃并隐藏按钮(本次报警周期内不会再响)
+        // 按钮可点击, 自行消费触摸事件, 不会触发气泡的拖动/点击切换字号
+        btnCancelAlarm.setOnClickListener(v -> {
+            AlarmPlayer.cancel();
+            btnCancelAlarm.setVisibility(View.GONE);
+        });
 
         SharedPreferences sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         params = new WindowManager.LayoutParams(

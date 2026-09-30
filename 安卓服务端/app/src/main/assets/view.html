@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>HRHub 看板</title>
+<style>
+:root{--bg:#0b0e14;--card:#141924;--line:#232b3a;--fg:#e8edf6;--dim:#8b97ab;--red:#ff4d5e;--green:#33d17a}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;user-select:none;-webkit-user-select:none}
+header{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line)}
+#dot{width:9px;height:9px;border-radius:50%;background:var(--red);flex:none}
+#dot.on{background:var(--green)}
+#dev{font-weight:600;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#src{color:var(--dim);font-size:12px;margin-left:auto;flex:none}
+#hrwrap{display:flex;align-items:baseline;gap:6px;justify-content:center;padding:8px 0 0}
+#hr{font-size:62px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1;color:var(--green)}
+#hrunit{color:var(--dim);font-size:14px}
+#state{color:var(--dim);font-size:12px;text-align:center;min-height:18px;padding:2px 12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#wave{display:block;width:100%;height:92px;padding:0 12px}
+#alarm{display:none;margin:8px 12px;padding:10px 14px;border-radius:10px;background:var(--red);color:#fff;font-weight:700;align-items:center;gap:10px;animation:blink 1s infinite}
+#alarm.show{display:flex}
+@keyframes blink{50%{opacity:.55}}
+#alarm button{margin-left:auto;border:0;border-radius:8px;padding:8px 16px;font-size:14px;font-weight:700;cursor:pointer;background:#fff;color:var(--red)}
+#camtabs{display:flex;gap:8px;padding:8px 12px;overflow-x:auto}
+#camtabs button{flex:none;border:1px solid var(--line);background:var(--card);color:var(--dim);border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer}
+#camtabs button.sel{color:#fff;border-color:var(--green);background:#16321f}
+#videobox{position:relative;margin:0 12px;background:#000;border-radius:12px;overflow:hidden;aspect-ratio:16/9}
+#v{width:100%;height:100%;object-fit:contain;display:block;background:#000}
+#vmsg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#aab4c5;font-size:13px;background:rgba(0,0,0,.55);text-align:center;padding:0 16px}
+#replay{padding:10px 12px 4px;display:none}
+#replay h3{font-size:13px;color:var(--dim);font-weight:500;margin-bottom:6px}
+#clips{display:flex;gap:8px;overflow-x:auto}
+#clips button{flex:none;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:8px;padding:8px 12px;font-size:13px;cursor:pointer}
+/* 横屏: 左心率右视频 */
+@media (orientation:landscape){
+  #main{display:grid;grid-template-columns:38% 62%;column-gap:12px;align-items:start}
+  #left{padding:0 0 0 12px}
+  #hrwrap{padding-top:6px}
+  #hr{font-size:54px}
+  #alarm{margin:8px 0}
+  #camtabs{padding-left:0}
+  #videobox{margin:10px 12px 0 0;aspect-ratio:auto;height:calc(100vh - 130px)}
+  #replay{padding-left:0}
+}
+</style>
+</head>
+<body>
+<header>
+  <span id="dot"></span><span id="dev">HRHub</span><span id="src"></span>
+</header>
+<div id="main">
+  <div id="left">
+    <div id="hrwrap"><span id="hr">--</span><span id="hrunit">bpm</span></div>
+    <div id="state"></div>
+    <canvas id="wave"></canvas>
+    <div id="alarm">⚠ 报警中<button onclick="cancelAlarm()">取消报警</button></div>
+    <div id="camtabs"></div>
+    <div id="replay"><h3>报警剪辑回看</h3><div id="clips"></div></div>
+  </div>
+  <div id="videobox">
+    <video id="v" playsinline muted autoplay></video>
+    <div id="vmsg">点击相机名开始实时画面</div>
+  </div>
+</div>
+<script>
+const $ = function(id){ return document.getElementById(id); };
+const MIMES = [
+  'video/mp4; codecs="avc1.640029,mp4a.40.2"',
+  'video/mp4; codecs="avc1.640029"',
+  'video/mp4; codecs="avc1.42E01E,mp4a.40.2"',
+  'video/mp4; codecs="avc1.42E01E"'
+];
+let ws = null, wsUp = false;
+let liveCam = '', replaying = false;
+let mse = null, sb = null, sbQueue = [], preQueue = [];
+let mimeIdx = 0;
+let lastState = null, hrHist = [];
+
+/* ---- WS ---- */
+function connect(){
+  ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/view');
+  ws.binaryType = 'arraybuffer';
+  ws.onopen = function(){
+    wsUp = true; $('dot').classList.add('on');
+    if (liveCam && !replaying) sub(liveCam);           // 断线重连后自动恢复订阅
+  };
+  ws.onclose = function(){
+    wsUp = false; $('dot').classList.remove('on');
+    dropVideo('连接断开, 重连中...');
+    setTimeout(connect, 3000);
+  };
+  ws.onmessage = function(e){
+    if (typeof e.data === 'string'){
+      let m; try { m = JSON.parse(e.data); } catch(_){ return; }
+      if (m.heart_rate !== undefined) handleState(m);
+      else if (m.type === 'live_err') dropVideo('相机不可用(未启用/离线)');
+      else if (m.type === 'live_end') {
+        dropVideo('推流结束(' + (m.why || '') + '), 3秒后重试');
+        setTimeout(function(){ if (liveCam && !replaying) sub(liveCam); }, 3000);
+      }
+    } else feed(e.data);
+  };
+}
+function send(o){ if (wsUp) ws.send(JSON.stringify(o)); }
+
+/* ---- 状态渲染 ---- */
+function handleState(s){
+  lastState = s;
+  $('dev').textContent = s.device || 'HRHub';
+  const stale = s.status !== 'connected';
+  $('hr').textContent = s.heart_rate > 0 ? s.heart_rate : '--';
+  $('hr').style.color = s.alarm ? 'var(--red)' : (stale ? 'var(--dim)' : 'var(--green)');
+  $('state').textContent = stale ? '手环未连接' : (s.info || '');
+  let hs = {}; try { hs = JSON.parse(s.hr_source || '{}'); } catch(_){}
+  $('src').textContent = hs.phase === 'direct' ? '本机直连'
+      : (hs.phase === 'active' ? ('中继 · ' + (hs.source || '')) 
+      : (hs.phase === 'switching' ? '切换中' : ''));
+  const al = !!s.alarm;
+  $('alarm').classList.toggle('show', al);
+  document.title = (al ? '⚠报警 ' : '') + 'HRHub 看板';
+  // 报警自动切绑定相机(对齐接收端语义; 手动回看时不打扰)
+  if (al && s.alarm_cam && liveCam !== s.alarm_cam && !replaying) sub(s.alarm_cam);
+  renderClips(s.clips || []);
+}
+
+/* ---- 波形(1s 推进, 0=断点) ---- */
+setInterval(function(){
+  const hr = lastState && lastState.status === 'connected' ? lastState.heart_rate : 0;
+  hrHist.push(hr > 0 ? hr : 0);
+  if (hrHist.length > 160) hrHist.shift();
+  drawWave();
+}, 1000);
+function drawWave(){
+  const c = $('wave');
+  const dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth * dpr, h = c.clientHeight * dpr;
+  if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, w, h);
+  const n = hrHist.length;
+  if (n < 2) return;
+  const lo = 35, hi = 165;
+  ctx.strokeStyle = (lastState && lastState.alarm) ? '#ff4d5e' : '#33d17a';
+  ctx.lineWidth = 2 * dpr;
+  ctx.beginPath();
+  let pen = false;
+  for (let i = 0; i < n; i++){
+    const v = hrHist[i];
+    if (v <= 0) { pen = false; continue; }
+    const x = (i / 159) * w;
+    const y = h - ((Math.min(Math.max(v, lo), hi) - lo) / (hi - lo)) * (h - 8 * dpr) - 4 * dpr;
+    if (!pen) { ctx.moveTo(x, y); pen = true; } else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+}
+
+/* ---- 相机列表 / 实时视频(MSE fMP4 over WS) ---- */
+function loadCams(){
+  fetch('/camera/list').then(function(r){ return r.json(); }).then(function(list){
+    const tb = $('camtabs'); tb.innerHTML = '';
+    (list || []).forEach(function(c){
+      const b = document.createElement('button');
+      b.textContent = c.name; b.dataset.cam = c.name;
+      b.onclick = function(){ sub(c.name); };
+      tb.appendChild(b);
+    });
+    if (!list || !list.length) {
+      $('vmsg').textContent = '未启用摄像头链路';
+    }
+  }).catch(function(){});
+}
+function setSel(cam){
+  const tb = $('camtabs');
+  for (const b of tb.children) b.classList.toggle('sel', b.dataset.cam === cam);
+}
+function sub(cam){
+  liveCam = cam; replaying = false;
+  setSel(cam);
+  dropVideo('连接相机 ' + cam + ' ...');
+  mimeIdx = 0;
+  send({cmd: 'live', cam: cam});
+}
+function stopLive(){
+  send({cmd: 'live_stop'});
+  liveCam = ''; setSel('');
+}
+function dropVideo(msg){
+  mse = null; sb = null; sbQueue = []; preQueue = [];
+  const v = $('v'); v.pause(); v.removeAttribute('src'); v.load();
+  if (msg) { $('vmsg').style.display = 'flex'; $('vmsg').textContent = msg; }
+}
+function feed(buf){
+  if (!sb) { preQueue.push(buf); if (preQueue.length > 64) preQueue.shift(); return; }
+  queueAppend(buf);
+}
+function queueAppend(buf){
+  if (sb.updating || sbQueue.length) sbQueue.push(buf);
+  else { try { sb.appendBuffer(buf); } catch(_){} }
+}
+function startMse(){
+  const mime = MIMES[mimeIdx];
+  if (!window.MediaSource || !MediaSource.isTypeSupported(mime)){
+    dropVideo('浏览器不支持 MSE 播放'); return;
+  }
+  mse = new MediaSource();
+  $('v').src = URL.createObjectURL(mse);
+  $('v').play();
+  mse.addEventListener('sourceopen', function(){
+    if (!mse) return;
+    sb = mse.addSourceBuffer(mime);
+    sb.mode = 'sequence';
+    sb.addEventListener('updateend', function(){
+      if (sb && !sb.updating && sbQueue.length) queueAppend(sbQueue.shift());
+    });
+    sb.addEventListener('error', function(){
+      // codec 声明与实际流不符: 依次降级重试
+      if (mimeIdx < MIMES.length - 1) {
+        mimeIdx++;
+        const cam = liveCam; dropVideo('解码重试...');
+        if (cam) sub(cam);
+      } else dropVideo('视频解码失败(需 H.264 子码流)');
+    });
+    $('vmsg').style.display = 'none';
+    while (preQueue.length) queueAppend(preQueue.shift());
+  });
+}
+/* 追帧: 防网络抖动延迟累积 */
+setInterval(function(){
+  const v = $('v');
+  if (replaying || !sb || v.buffered.length === 0) return;
+  const end = v.buffered.end(v.buffered.length - 1);
+  if (end - v.currentTime > 4) v.currentTime = end - 1.2;
+}, 3000);
+
+/* ---- 报警剪辑回看(HTTP mp4 直播) ---- */
+function renderClips(list){
+  const box = $('clips');
+  box.innerHTML = '';
+  $('replay').style.display = list.length ? 'block' : 'none';
+  list.forEach(function(c){
+    const b = document.createElement('button');
+    b.textContent = '▶ ' + (c.cam || '监控');
+    b.onclick = function(){
+      stopLive();
+      replaying = true;
+      mse = null; sb = null; sbQueue = []; preQueue = [];
+      $('vmsg').style.display = 'none';
+      $('v').src = c.url; $('v').play();
+    };
+    box.appendChild(b);
+  });
+}
+function cancelAlarm(){ fetch('/api/cancel_alarm', {method: 'POST'}); }
+
+/* ---- 启动 ---- */
+connect();
+loadCams();
+</script>
+</body>
+</html>

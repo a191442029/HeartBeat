@@ -1,3 +1,5 @@
+import os
+
 from PyQt5.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableWidget,
     QTableWidgetItem, QHeaderView, QAbstractItemView, QMessageBox, QWidget
@@ -6,6 +8,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor
 from push_notifier import load_push_history, clear_push_history
 from .basicwidgets import hint_label
+from .VideoPlayerDialog import VideoPlayerDialog
 
 
 class PushHistoryUI(QWidget):
@@ -24,13 +27,15 @@ class PushHistoryUI(QWidget):
 
         layout.addWidget(hint_label("记录所有渠道的每次推送(含测试), 保留最近200条; 多设备时会汇总各设备结果。"))
 
-        self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(["时间", "渠道", "结果", "标题", "内容/说明"])
+        self.table = QTableWidget(0, 6)
+        self.table.setHorizontalHeaderLabels(["时间", "渠道", "结果", "标题", "内容/说明", "视频"])
         # "内容/说明"列固定初始宽度并可拖拽调整, 内容超出时表格底部出现横向滚动条
         self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Interactive)
         self.table.horizontalHeader().resizeSection(4, 400)
         for col in range(4):
             self.table.horizontalHeader().setSectionResizeMode(col, QHeaderView.ResizeToContents)
+        # "视频"列: 报警记录显示各摄像头回放按钮
+        self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
         self.table.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -79,6 +84,29 @@ class PushHistoryUI(QWidget):
             # 列宽不够被截断时, 悬停可看全文
             content_item.setToolTip(content)
             self.table.setItem(r, 4, content_item)
+            # 报警记录若有摄像头剪辑: 每路一个"▶摄像头名"回放按钮
+            clips = rec.get("clips")
+            if isinstance(clips, list) and clips:
+                wrap = QWidget()
+                h = QHBoxLayout(wrap)
+                h.setContentsMargins(2, 0, 2, 0)
+                h.setSpacing(4)
+                for c in clips:
+                    if not isinstance(c, dict) or not c.get("mp4"):
+                        continue
+                    cam = str(c.get("cam") or "摄像头")
+                    btn = QPushButton(f"▶{cam}")
+                    mp4 = str(c["mp4"])
+                    if not os.path.exists(mp4):
+                        btn.setEnabled(False)
+                        btn.setToolTip("录像文件已不存在")
+                    else:
+                        btn.setToolTip("回放报警前10秒录像")
+                        btn.clicked.connect(lambda _checked, p=mp4, n=cam:
+                                            VideoPlayerDialog.play(self, p, n))
+                    h.addWidget(btn)
+                h.addStretch()
+                self.table.setCellWidget(r, 5, wrap)
             self.table.setRowHeight(r, 28)
 
     def _clear(self):

@@ -1,6 +1,6 @@
 apply plugin: 'com.android.application'
 
-// release签名配置从 keystore.properties 读取(密钥库 hrbubble-release.jks 在工程根目录)
+// release????? keystore.properties ??(??? hrbubble-release.jks ??????)
 def keystoreProps = new Properties()
 def keystorePropsFile = rootProject.file("keystore.properties")
 if (keystorePropsFile.exists()) {
@@ -14,13 +14,13 @@ android {
 
     defaultConfig {
         applicationId "com.hrmlink.hrbubble"
-        minSdk 26          // Android 8.0 起点
-        targetSdk 28       // 避免更高版本对悬浮窗/前台服务的额外收紧; 侧载安装无限制
-        versionCode 3
-        versionName "1.0.1"
+        minSdk 26          // Android 8.0 ??
+        targetSdk 28       // ??????????/?????????; ???????
+        versionCode 10
+        versionName "1.2.1"
     }
 
-    // 产物自动命名: HRBubble-1.0.0.apk (对齐服务端 HRHub-*.apk 风格)
+    // ??????: HRBubble-1.0.0.apk (????? HRHub-*.apk ??)
     applicationVariants.all { variant ->
         variant.outputs.all { output ->
             outputFileName = "HRBubble-" + variant.versionName.replace(" ", "") + ".apk"
@@ -28,11 +28,13 @@ android {
     }
 
     signingConfigs {
-        release {
-            storeFile rootProject.file(keystoreProps['storeFile'])
-            storePassword keystoreProps['storePassword']
-            keyAlias keystoreProps['keyAlias']
-            keyPassword keystoreProps['keyPassword']
+        if (keystorePropsFile.exists()) {
+            release {
+                storeFile rootProject.file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+            }
         }
     }
 
@@ -40,18 +42,19 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.release
+            // ?????? keystore.properties ?????(??????debug/???release??)
+            if (keystorePropsFile.exists()) signingConfig signingConfigs.release
         }
     }
 
     lint {
-        // 本应用为侧载自用, 有意 targetSdk 28(安卓8.0悬浮窗策略), 不上Google Play
+        // ????????, ?? targetSdk 28(??8.0?????), ??Google Play
         abortOnError false
         disable 'ExpiredTargetSdkVersion'
     }
 
     buildFeatures {
-        buildConfig true   // AGP8默认关闭; 设置页版本号显示需要 BuildConfig.VERSION_NAME
+        buildConfig true   // AGP8????; ?????????? BuildConfig.VERSION_NAME
     }
 
     compileOptions {
@@ -61,8 +64,8 @@ android {
 }
 
 dependencies {
-    // WS客户端 + HTTP轮询 共用一个库; 3.14.9 支持 API 21+
+    // WS??? + HTTP?? ?????; 3.14.9 ?? API 21+
     implementation 'com.squareup.okhttp3:okhttp:3.14.9'
-    // 检查更新: FileProvider 共享下载的APK给系统安装器
+    // ????: FileProvider ?????APK??????
     implementation 'androidx.core:core:1.8.0'
 }

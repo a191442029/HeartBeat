@@ -8,13 +8,17 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.view.ViewGroup;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.SeekBar;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -23,6 +27,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 设置页(阶段4-B, 1:1 对标 EXE PushSettingUI/TailscaleSettingUI/InfluxDBSettingUI/MQTTSettingUI/DevCtrl):
@@ -55,6 +60,28 @@ public class SettingsActivity extends Activity {
             chkInfluxEnabled, chkMqttDisc;
     private TextView txtDevSaved, txtScanStatus;
     private android.widget.LinearLayout listPeriods;
+
+    // 摄像头组
+    private CheckBox chkCameraEnabled, chkClipHd;
+    private EditText editCamerasJson;
+    private Spinner spinLiveStream, spinDetectMode;
+    // 存储组
+    private CheckBox chkArchClip, chkArchCsv, chkArchPushlog;
+    private Spinner spinClipStorage, spinCsvStorage, spinPushlogStorage;
+    private EditText editCsvRetention;
+    private TextView txtUsbState;
+    // 大屏显示组(即改即生效, 不走保存)
+    private final CheckBox[] chkCards = new CheckBox[7];
+    private SeekBar seekHrSize;
+    private TextView txtHrSizeVal, txtHrPreview;
+    private CheckBox chkHeartIcon, chkMinicam, chkSrcRow;
+    // ESP32 中继组
+    private CheckBox chkRelayEnabled;
+    private EditText editRelayDrop, editRelayHyst, editRelayMin, editRelayStale, editRelayFreeze;
+    private LinearLayout listRelayNodes, listRoomCam;
+    /** 节点名/相机名缓存(房间→相机联动下拉用; renderRelayNodes/renderRoomCam 刷新) */
+    private final List<String> nodeNames = new ArrayList<>();
+    private final List<String> camNames = new ArrayList<>();
 
     private final BleManager ble = new BleManager();
     private final ArrayList<String[]> devices = new ArrayList<>();        // {name, address}
@@ -113,6 +140,53 @@ public class SettingsActivity extends Activity {
                 OverlayManager.get(this).hide();
             }
         });
+
+        // ---- 触发测试报警(全链路演示: 报警画面/剪辑/推送/响铃, 复用报警生命周期) ----
+        findViewById(R.id.btn_trigger_alarm).setOnClickListener(v -> {
+            saveAll();   // 应用最新阈值/报警秒数
+            if (!HeartRateService.isRunning()) {
+                HeartRateService.start(this);
+            }
+            int secs = Prefs.getInt(this, Prefs.ALARM_SECONDS, 10);
+            HeartBus.get().triggerAlarm(secs, CameraManager.get().defaultName(), "测试");
+            Toast.makeText(this, "已触发测试报警(" + secs + "s), 返回仪表盘查看全链路", Toast.LENGTH_LONG).show();
+            finish();   // 直接切到仪表盘
+        });
+
+        // ---- 大屏显示组: 即改即生效(对齐预览稿"开关操作即时联动仪表盘") ----
+        String[] cardKeys = {Prefs.UI_CARD_BAND, Prefs.UI_CARD_WS, Prefs.UI_CARD_TS,
+                Prefs.UI_CARD_MQTT, Prefs.UI_CARD_INFLUX, Prefs.UI_CARD_CAM, Prefs.UI_CARD_RELAY};
+        for (int i = 0; i < 7; i++) {
+            final String key = cardKeys[i];
+            chkCards[i].setOnCheckedChangeListener((b, on) -> Prefs.putBool(this, key, on));
+        }
+        seekHrSize.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                int size = progress + 100;
+                txtHrSizeVal.setText(size + "sp");
+                txtHrPreview.setTextSize(TypedValue.COMPLEX_UNIT_SP, Math.max(12, size / 8));
+                Prefs.putInt(SettingsActivity.this, Prefs.UI_HR_SIZE, size);
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar sb) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar sb) {
+            }
+        });
+        chkHeartIcon.setOnCheckedChangeListener((b, on) -> Prefs.putBool(this, Prefs.UI_HEART_ICON, on));
+        chkMinicam.setOnCheckedChangeListener((b, on) -> Prefs.putBool(this, Prefs.UI_MINICAM, on));
+        chkSrcRow.setOnCheckedChangeListener((b, on) -> Prefs.putBool(this, Prefs.UI_SRC_ROW, on));
+
+        // ---- ESP32 中继组: 刷新节点表 / 添加房间→相机绑定 ----
+        findViewById(R.id.btn_relay_refresh).setOnClickListener(v -> {
+            renderRelayNodes();
+            renderRoomCam();
+        });
+        findViewById(R.id.btn_add_roomcam).setOnClickListener(v -> addRoomCamRow("", ""));
     }
 
     private void bindViews() {
@@ -167,6 +241,75 @@ public class SettingsActivity extends Activity {
         editMqttTopic = findViewById(R.id.edit_mqtt_topic);
         chkMqttDisc = findViewById(R.id.chk_mqtt_discovery);
         editMqttDiscTopic = findViewById(R.id.edit_mqtt_discovery_topic);
+
+        // 摄像头组
+        chkCameraEnabled = findViewById(R.id.chk_camera_enabled);
+        editCamerasJson = findViewById(R.id.edit_cameras_json);
+        chkClipHd = findViewById(R.id.chk_clip_hd);
+        spinLiveStream = findViewById(R.id.spin_live_stream);
+        spinDetectMode = findViewById(R.id.spin_detect_mode);
+        // 存储组
+        chkArchClip = findViewById(R.id.chk_arch_clip);
+        chkArchCsv = findViewById(R.id.chk_arch_csv);
+        chkArchPushlog = findViewById(R.id.chk_arch_pushlog);
+        spinClipStorage = findViewById(R.id.spin_clip_storage);
+        spinCsvStorage = findViewById(R.id.spin_csv_storage);
+        spinPushlogStorage = findViewById(R.id.spin_pushlog_storage);
+        editCsvRetention = findViewById(R.id.edit_csv_retention);
+        txtUsbState = findViewById(R.id.txt_usb_state);
+        // 大屏显示组
+        int[] cardChkIds = {R.id.chk_card_band, R.id.chk_card_ws, R.id.chk_card_ts, R.id.chk_card_mqtt,
+                R.id.chk_card_influx, R.id.chk_card_cam, R.id.chk_card_relay};
+        for (int i = 0; i < 7; i++) {
+            chkCards[i] = findViewById(cardChkIds[i]);
+        }
+        seekHrSize = findViewById(R.id.seek_hr_size);
+        txtHrSizeVal = findViewById(R.id.txt_hr_size_val);
+        txtHrPreview = findViewById(R.id.txt_hr_preview);
+        chkHeartIcon = findViewById(R.id.chk_heart_icon);
+        chkMinicam = findViewById(R.id.chk_minicam);
+        chkSrcRow = findViewById(R.id.chk_src_row);
+
+        // 下拉适配器(须在 loadAll.setSelection 之前就位)
+        ArrayAdapter<String> liveAd = new ArrayAdapter<String>(this,
+                android.R.layout.simple_spinner_item, new String[]{"子码流 (推荐)", "主码流"});
+        liveAd.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinLiveStream.setAdapter(liveAd);
+
+        ArrayAdapter<String> detAd = new ArrayAdapter<String>(this,
+                android.R.layout.simple_spinner_item,
+                new String[]{"移动侦测·帧差 (当前方案)", "ONVIF 事件 (预留)", "NPU 人形检测 (待真机)"}) {
+            @Override
+            public boolean isEnabled(int position) {
+                return position != 2;   // NPU 置灰(对齐预览稿)
+            }
+
+            @Override
+            public View getDropDownView(int position, View convertView, ViewGroup parent) {
+                View v = super.getDropDownView(position, convertView, parent);
+                ((TextView) v).setTextColor(position == 2 ? 0xFF666666 : 0xFFEEEEEE);
+                return v;
+            }
+        };
+        detAd.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinDetectMode.setAdapter(detAd);
+
+        ArrayAdapter<String> storAd = new ArrayAdapter<String>(this,
+                android.R.layout.simple_spinner_item, new String[]{"板载存储", "U 盘"});
+        storAd.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinClipStorage.setAdapter(storAd);
+        spinCsvStorage.setAdapter(storAd);
+        spinPushlogStorage.setAdapter(storAd);
+
+        // ESP32 中继组
+        chkRelayEnabled = findViewById(R.id.chk_relay_enabled);
+        editRelayDrop = findViewById(R.id.edit_relay_drop);
+        editRelayHyst = findViewById(R.id.edit_relay_hyst);
+        editRelayMin = findViewById(R.id.edit_relay_min);
+        editRelayStale = findViewById(R.id.edit_relay_stale);
+        editRelayFreeze = findViewById(R.id.edit_relay_freeze);
+        listRelayNodes = findViewById(R.id.list_relay_nodes);
+        listRoomCam = findViewById(R.id.list_roomcam);
     }
 
     // ==================== 加载 ====================
@@ -242,6 +385,275 @@ public class SettingsActivity extends Activity {
             JSONObject p = arr.optJSONObject(i);
             if (p != null) addPeriodRow(p);
         }
+
+        // 摄像头组
+        chkCameraEnabled.setChecked(Prefs.getBool(this, Prefs.CAMERA_ENABLED, false));
+        editCamerasJson.setText(Prefs.getStr(this, Prefs.CAMERAS_JSON, "[]"));
+        chkClipHd.setChecked(Prefs.getBool(this, Prefs.CLIP_HD_ENABLED, false));
+        spinLiveStream.setSelection("main".equals(Prefs.getStr(this, Prefs.LIVE_STREAM, "sub")) ? 1 : 0);
+        String dm = Prefs.getStr(this, Prefs.DETECT_MODE, "frame_diff");
+        spinDetectMode.setSelection("onvif_event".equals(dm) ? 1 : ("npu_human".equals(dm) ? 2 : 0));
+
+        // 存储组
+        txtUsbState.setText(StorageUtil.usbStateText(this));
+        chkArchClip.setChecked(Prefs.getBool(this, Prefs.ARCH_CLIP_ENABLED, true));
+        chkArchCsv.setChecked(Prefs.getBool(this, Prefs.ARCH_CSV_ENABLED, true));
+        chkArchPushlog.setChecked(Prefs.getBool(this, Prefs.ARCH_PUSHLOG_ENABLED, true));
+        setStorageSpin(spinClipStorage, Prefs.getStr(this, Prefs.CLIP_STORAGE, "usb"));
+        setStorageSpin(spinCsvStorage, Prefs.getStr(this, Prefs.CSV_STORAGE, "usb"));
+        setStorageSpin(spinPushlogStorage, Prefs.getStr(this, Prefs.PUSHLOG_STORAGE, "usb"));
+        editCsvRetention.setText(String.valueOf(Prefs.getInt(this, Prefs.CSV_RETENTION_DAYS, 30)));
+
+        // 大屏显示组(即改即生效)
+        String[] cardKeys = {Prefs.UI_CARD_BAND, Prefs.UI_CARD_WS, Prefs.UI_CARD_TS,
+                Prefs.UI_CARD_MQTT, Prefs.UI_CARD_INFLUX, Prefs.UI_CARD_CAM, Prefs.UI_CARD_RELAY};
+        for (int i = 0; i < 7; i++) {
+            chkCards[i].setChecked(Prefs.getBool(this, cardKeys[i], true));
+        }
+        int hrSize = Prefs.getInt(this, Prefs.UI_HR_SIZE, 150);
+        seekHrSize.setProgress(hrSize - 100);
+        txtHrSizeVal.setText(hrSize + "sp");
+        txtHrPreview.setTextSize(TypedValue.COMPLEX_UNIT_SP, Math.max(12, hrSize / 8));
+        chkHeartIcon.setChecked(Prefs.getBool(this, Prefs.UI_HEART_ICON, true));
+        chkMinicam.setChecked(Prefs.getBool(this, Prefs.UI_MINICAM, true));
+        chkSrcRow.setChecked(Prefs.getBool(this, Prefs.UI_SRC_ROW, true));
+
+        // ESP32 中继组
+        chkRelayEnabled.setChecked(Prefs.getBool(this, Prefs.RELAY_ENABLED, false));
+        editRelayDrop.setText(String.valueOf(Prefs.getInt(this, Prefs.RELAY_THRESHOLD_DROP, -75)));
+        editRelayHyst.setText(String.valueOf(Prefs.getInt(this, Prefs.RELAY_HYSTERESIS_DB, 10)));
+        editRelayMin.setText(String.valueOf(Prefs.getInt(this, Prefs.RELAY_MIN_RSSI, -80)));
+        editRelayStale.setText(String.valueOf(Prefs.getInt(this, Prefs.RELAY_STALE_SECONDS, 30)));
+        editRelayFreeze.setText(String.valueOf(Prefs.getInt(this, Prefs.RELAY_FREEZE_CYCLES, 3)));
+        renderRelayNodes();
+        renderRoomCam();
+    }
+
+    /** 存储位置下拉: 0=板载 1=U盘 */
+    private static void setStorageSpin(Spinner sp, String v) {
+        sp.setSelection("usb".equals(v) ? 1 : 0);
+    }
+
+    private static String storageSpinValue(Spinner sp) {
+        return sp.getSelectedItemPosition() == 1 ? "usb" : "internal";
+    }
+
+    // ==================== ESP32 中继组 ====================
+
+    /** 刷新节点表(名称/信号/状态/标定输入/操作), 同时刷新房间名缓存 */
+    private void renderRelayNodes() {
+        listRelayNodes.removeAllViews();
+        nodeNames.clear();
+        JSONArray nodes = RelayHub.get().nodeTable();
+        if (nodes.length() == 0) {
+            listRelayNodes.addView(smallHint(RelayHub.get().isRunning()
+                    ? "暂无节点, 等待 ESP32 接入(或点\"刷新节点\")"
+                    : "中继未启用(勾选后保存, 重启监测生效)"));
+        }
+        for (int i = 0; i < nodes.length(); i++) {
+            JSONObject n = nodes.optJSONObject(i);
+            if (n != null) {
+                listRelayNodes.addView(relayNodeRow(n));
+            }
+        }
+    }
+
+    /** 单节点行: 名称 | 信号 | 状态 | 标定输入 | 改名/重启/删除 */
+    private View relayNodeRow(final JSONObject n) {
+        final String name = n.optString("name", "");
+        nodeNames.add(name);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setBackgroundColor(0xFF20222B);
+        row.setPadding(dip(8), dip(4), dip(4), dip(4));
+
+        TextView tvName = new TextView(this);
+        tvName.setText(name);
+        tvName.setTextColor(0xFFFFFFFF);
+        tvName.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        row.addView(tvName, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 2f));
+
+        int rssi = n.optInt("rssi", 0);
+        TextView tvSig = new TextView(this);
+        tvSig.setText(rssi == 0 ? "-" : String.valueOf(rssi));
+        tvSig.setTextColor(rssi == 0 ? 0xFF888899
+                : (rssi >= -70 ? 0xFF2ECC71 : (rssi >= -80 ? 0xFFF39C12 : 0xFFE74C3C)));
+        tvSig.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        row.addView(tvSig, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView tvState = new TextView(this);
+        String st = n.optString("state", "");
+        tvState.setText("active".equals(st) ? "在线" : ("connecting".equals(st) ? "连接中" : "离线"));
+        tvState.setTextColor("active".equals(st) ? 0xFF2ECC71
+                : ("connecting".equals(st) ? 0xFFF39C12 : 0xFF888899));
+        tvState.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        row.addView(tvState, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        // 信号标定: 偏差 dB(存 RELAY_NODE_BIASES, 仲裁时应用)
+        EditText bias = new EditText(this);
+        bias.setInputType(android.text.InputType.TYPE_CLASS_NUMBER
+                | android.text.InputType.TYPE_NUMBER_FLAG_SIGNED);
+        bias.setText(String.valueOf(n.optInt("bias", 0)));
+        bias.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        bias.setTextColor(0xFFFFFFFF);
+        bias.setGravity(Gravity.CENTER);
+        bias.setTag("bias_" + name);
+        row.addView(bias, new LinearLayout.LayoutParams(dip(52),
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        row.addView(smallBtn("改名", v -> renameDialog(name)));
+        row.addView(smallBtn("重启", v -> rebootConfirm(name)));
+        row.addView(smallBtn("删除", v -> forgetConfirm(name)));
+        return row;
+    }
+
+    private void renameDialog(final String oldName) {
+        final EditText input = new EditText(this);
+        input.setText(oldName);
+        new AlertDialog.Builder(this)
+                .setTitle("改名节点: " + oldName)
+                .setView(input)
+                .setPositiveButton("下发改名", (d, w) -> {
+                    String[] r = RelayHub.get().renameNode(oldName, input.getText().toString());
+                    Toast.makeText(this, r[1], Toast.LENGTH_LONG).show();
+                    if (r[0].equals("true")) {
+                        renderRelayNodes();
+                        renderRoomCam();   // 房间名可能变化, 绑定行同步刷新
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void rebootConfirm(final String name) {
+        new AlertDialog.Builder(this)
+                .setTitle("重启节点")
+                .setMessage("确定重启 [" + name + "]?\n重启期间短暂离线, 重连后自动重新登记。")
+                .setPositiveButton("重启", (d, w) -> {
+                    String[] r = RelayHub.get().rebootNode(name);
+                    Toast.makeText(this, r[1], Toast.LENGTH_LONG).show();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void forgetConfirm(final String name) {
+        new AlertDialog.Builder(this)
+                .setTitle("删除节点")
+                .setMessage("确定删除 [" + name + "]?\n仅移除中枢登记; 节点在线时重连会重新登记, 彻底移除需现场断电。")
+                .setPositiveButton("删除", (d, w) -> {
+                    String[] r = RelayHub.get().forgetNode(name);
+                    Toast.makeText(this, r[1], Toast.LENGTH_LONG).show();
+                    if (r[0].equals("true")) {
+                        renderRelayNodes();
+                        renderRoomCam();
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    /** 刷新房间→相机绑定行(ROOM_CAMERA_MAP 存值 + 现有节点名并集) */
+    private void renderRoomCam() {
+        camNames.clear();
+        try {
+            JSONArray arr = new JSONArray(CameraManager.get().camListJson());
+            for (int i = 0; i < arr.length(); i++) {
+                camNames.add(arr.getJSONObject(i).optString("name", ""));
+            }
+        } catch (Exception ignore) {
+        }
+        listRoomCam.removeAllViews();
+        try {
+            JSONObject map = new JSONObject(Prefs.getStr(this, Prefs.ROOM_CAMERA_MAP, "{}"));
+            java.util.Iterator<String> it = map.keys();
+            while (it.hasNext()) {
+                String room = it.next();
+                addRoomCamRow(room, map.optString(room, ""));
+            }
+        } catch (Exception ignore) {
+        }
+        if (listRoomCam.getChildCount() == 0) {
+            listRoomCam.addView(smallHint("未绑定: 报警时使用默认相机"));
+        }
+    }
+
+    /** 一行绑定: [房间(节点)] → [相机(首项=默认)] [移除] */
+    private void addRoomCamRow(String room, String cam) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+
+        Spinner spRoom = new Spinner(this);
+        ArrayAdapter<String> roomAd = new ArrayAdapter<String>(this,
+                android.R.layout.simple_spinner_item, nodeNames.toArray(new String[0]));
+        roomAd.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spRoom.setAdapter(roomAd);
+        int ri = nodeNames.indexOf(room);
+        if (ri >= 0) {
+            spRoom.setSelection(ri);
+        }
+
+        TextView arrow = new TextView(this);
+        arrow.setText("  →  ");
+        arrow.setTextColor(0xFF888899);
+
+        Spinner spCam = new Spinner(this);
+        List<String> cams = new ArrayList<>(camNames);
+        cams.add(0, "(默认)");
+        ArrayAdapter<String> camAd = new ArrayAdapter<String>(this,
+                android.R.layout.simple_spinner_item, cams.toArray(new String[0]));
+        camAd.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spCam.setAdapter(camAd);
+        int ci = cams.indexOf(cam);
+        spCam.setSelection(ci >= 0 ? ci : 0);
+
+        row.addView(spRoom, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        row.addView(arrow, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        row.addView(spCam, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        row.addView(smallBtn("移除", v -> {
+            listRoomCam.removeView(row);
+            if (listRoomCam.getChildCount() == 0) {
+                listRoomCam.addView(smallHint("未绑定: 报警时使用默认相机"));
+            }
+        }));
+        listRoomCam.addView(row);
+    }
+
+    private Button smallBtn(String label, View.OnClickListener onClick) {
+        Button b = new Button(this);
+        b.setText(label);
+        b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        b.setMinWidth(0);
+        b.setMinHeight(0);
+        b.setHeight(dip(30));
+        b.setPadding(dip(8), 0, dip(8), 0);
+        b.setOnClickListener(onClick);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(dip(4), 0, 0, 0);
+        b.setLayoutParams(lp);
+        return b;
+    }
+
+    private TextView smallHint(String s) {
+        TextView t = new TextView(this);
+        t.setText(s);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        t.setTextColor(0xFF888899);
+        t.setPadding(dip(8), dip(6), dip(8), dip(6));
+        return t;
+    }
+
+    private int dip(int v) {
+        return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
     }
 
     /** Bark 级别值→下标 */
@@ -459,6 +871,54 @@ public class SettingsActivity extends Activity {
         }
         JSONArray periods = collectPeriods();
         if (periods == null) return;
+        // 相机列表 JSON 校验(启用时才强校验)
+        String camsJson = text(editCamerasJson).trim();
+        if (chkCameraEnabled.isChecked() && !camsJson.isEmpty()) {
+            try {
+                JSONArray cArr = new JSONArray(camsJson);
+                for (int i = 0; i < cArr.length(); i++) {
+                    JSONObject o = cArr.optJSONObject(i);
+                    if (o == null || o.optString("name", "").trim().isEmpty()) {
+                        fail("相机列表第" + (i + 1) + "项无效(需对象且含 name)", editCamerasJson);
+                        return;
+                    }
+                }
+            } catch (Exception e) {
+                fail("相机列表不是合法 JSON: " + e.getMessage(), editCamerasJson);
+                return;
+            }
+        }
+        Integer retention = intOf(editCsvRetention);
+        if (retention == null || retention < 1 || retention > 3650) {
+            fail("CSV 保留天数须为 1-3650", editCsvRetention);
+            return;
+        }
+        // 中继仲裁参数校验(对齐 EXE relay_hub 默认值域)
+        Integer rDrop = intOf(editRelayDrop);
+        Integer rHyst = intOf(editRelayHyst);
+        Integer rMin = intOf(editRelayMin);
+        Integer rStale = intOf(editRelayStale);
+        Integer rFreeze = intOf(editRelayFreeze);
+        if (rDrop == null || rDrop < -100 || rDrop > 0) {
+            fail("切换阈值须为 -100~0 dBm", editRelayDrop);
+            return;
+        }
+        if (rHyst == null || rHyst < 0 || rHyst > 40) {
+            fail("迟滞须为 0~40 dB", editRelayHyst);
+            return;
+        }
+        if (rMin == null || rMin < -100 || rMin > -20) {
+            fail("最低RSSI须为 -100~-20 dBm", editRelayMin);
+            return;
+        }
+        if (rStale == null || rStale < 5 || rStale > 600) {
+            fail("接管判定秒须为 5~600", editRelayStale);
+            return;
+        }
+        if (rFreeze == null || rFreeze < 1 || rFreeze > 10) {
+            fail("冻结周期须为 1~10", editRelayFreeze);
+            return;
+        }
 
         // ---- 写入(键位类型严格按 Prefs 契约) ----
         Prefs.putBool(this, Prefs.DEV_AUTO_CONNECT, chkAutoConnect.isChecked());
@@ -505,6 +965,89 @@ public class SettingsActivity extends Activity {
         Prefs.putBool(this, Prefs.MQTT_DISCOVERY_ENABLED, chkMqttDisc.isChecked());
         Prefs.putStr(this, Prefs.MQTT_DISCOVERY_TOPIC, text(editMqttDiscTopic).trim());
         Prefs.putStr(this, Prefs.PUSH_PERIODS, periods.toString());
+
+        // 摄像头组
+        Prefs.putBool(this, Prefs.CAMERA_ENABLED, chkCameraEnabled.isChecked());
+        Prefs.putStr(this, Prefs.CAMERAS_JSON, camsJson.isEmpty() ? "[]" : camsJson);
+        Prefs.putBool(this, Prefs.CLIP_HD_ENABLED, chkClipHd.isChecked());
+        Prefs.putStr(this, Prefs.LIVE_STREAM,
+                spinLiveStream.getSelectedItemPosition() == 1 ? "main" : "sub");
+        int dmPos = spinDetectMode.getSelectedItemPosition();
+        Prefs.putStr(this, Prefs.DETECT_MODE,
+                dmPos == 1 ? "onvif_event" : (dmPos == 2 ? "npu_human" : "frame_diff"));
+        // 存储组
+        Prefs.putBool(this, Prefs.ARCH_CLIP_ENABLED, chkArchClip.isChecked());
+        Prefs.putBool(this, Prefs.ARCH_CSV_ENABLED, chkArchCsv.isChecked());
+        Prefs.putBool(this, Prefs.ARCH_PUSHLOG_ENABLED, chkArchPushlog.isChecked());
+        Prefs.putStr(this, Prefs.CLIP_STORAGE, storageSpinValue(spinClipStorage));
+        Prefs.putStr(this, Prefs.CSV_STORAGE, storageSpinValue(spinCsvStorage));
+        Prefs.putStr(this, Prefs.PUSHLOG_STORAGE, storageSpinValue(spinPushlogStorage));
+        Prefs.putInt(this, Prefs.CSV_RETENTION_DAYS, retention);
+        // ESP32 中继组
+        Prefs.putBool(this, Prefs.RELAY_ENABLED, chkRelayEnabled.isChecked());
+        Prefs.putInt(this, Prefs.RELAY_THRESHOLD_DROP, rDrop);
+        Prefs.putInt(this, Prefs.RELAY_HYSTERESIS_DB, rHyst);
+        Prefs.putInt(this, Prefs.RELAY_MIN_RSSI, rMin);
+        Prefs.putInt(this, Prefs.RELAY_STALE_SECONDS, rStale);
+        Prefs.putInt(this, Prefs.RELAY_FREEZE_CYCLES, rFreeze);
+        // 信号标定: 从节点行收集偏差 → RELAY_NODE_BIASES
+        try {
+            JSONObject biases = new JSONObject();
+            for (int i = 0; i < listRelayNodes.getChildCount(); i++) {
+                View row = listRelayNodes.getChildAt(i);
+                if (!(row instanceof LinearLayout)) continue;
+                LinearLayout rl = (LinearLayout) row;
+                EditText be = null;
+                for (int k = 0; k < rl.getChildCount(); k++) {
+                    View ch = rl.getChildAt(k);
+                    if (ch instanceof EditText) {
+                        be = (EditText) ch;
+                    }
+                }
+                if (be != null && be.getTag() != null
+                        && be.getTag().toString().startsWith("bias_")) {
+                    try {
+                        biases.put(be.getTag().toString().substring(5),
+                                Integer.parseInt(be.getText().toString().trim()));
+                    } catch (Exception ignore) {
+                    }
+                }
+            }
+            Prefs.putStr(this, Prefs.RELAY_NODE_BIASES, biases.toString());
+        } catch (Exception ignore) {
+        }
+        // 房间→相机绑定: 收集行 → ROOM_CAMERA_MAP
+        try {
+            JSONObject map = new JSONObject();
+            for (int i = 0; i < listRoomCam.getChildCount(); i++) {
+                View row = listRoomCam.getChildAt(i);
+                if (!(row instanceof LinearLayout)) continue;
+                LinearLayout rl = (LinearLayout) row;
+                Spinner spRoom = null, spCam = null;
+                for (int k = 0; k < rl.getChildCount(); k++) {
+                    View ch = rl.getChildAt(k);
+                    if (ch instanceof Spinner) {
+                        if (spRoom == null) {
+                            spRoom = (Spinner) ch;
+                        } else {
+                            spCam = (Spinner) ch;
+                        }
+                    }
+                }
+                if (spRoom != null && spCam != null && spRoom.getSelectedItem() != null
+                        && spCam.getSelectedItem() != null) {
+                    String room = spRoom.getSelectedItem().toString();
+                    String cam = spCam.getSelectedItem().toString();
+                    if (!room.isEmpty() && !cam.startsWith("(")) {
+                        map.put(room, cam);
+                    }
+                }
+            }
+            Prefs.putStr(this, Prefs.ROOM_CAMERA_MAP, map.toString());
+        } catch (Exception ignore) {
+        }
+        // 大屏显示组即改即生效, 不在此写入
+        SyncManager.get().notifyLocalChange(this);  // 本地改动统一出口: 差分→rev+1→推送对端(§6.5)
 
         Toast.makeText(this, "设置已保存"
                 + (HeartRateService.isRunning() ? ", 部分参数停止监测后重新开启生效" : ""),

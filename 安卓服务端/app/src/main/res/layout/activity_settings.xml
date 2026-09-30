@@ -22,6 +22,10 @@
         <include layout="@layout/settings_group_service"/>
         <include layout="@layout/settings_group_alarm"/>
         <include layout="@layout/settings_group_channels"/>
+        <include layout="@layout/settings_group_camera"/>
+        <include layout="@layout/settings_group_relay"/>
+        <include layout="@layout/settings_group_storage"/>
+        <include layout="@layout/settings_group_display"/>
 
         <LinearLayout
             android:layout_width="match_parent"

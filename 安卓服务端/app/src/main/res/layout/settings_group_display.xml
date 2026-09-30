@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="#1C1E26"
+    android:padding="10dp"
+    android:layout_marginBottom="12dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="大屏显示"
+        android:textSize="15sp"
+        android:textStyle="bold"
+        android:textColor="@color/accent"/>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="4dp"
+        android:text="底部状态卡片 (勾选显示 / 取消隐藏)"
+        android:textSize="12sp"
+        android:textColor="#999999"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <CheckBox
+            android:id="@+id/chk_card_band"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="手环"/>
+
+        <CheckBox
+            android:id="@+id/chk_card_ws"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="WS客户端"/>
+
+        <CheckBox
+            android:id="@+id/chk_card_ts"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Tailscale"/>
+
+        <CheckBox
+            android:id="@+id/chk_card_mqtt"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="MQTT"/>
+
+        <CheckBox
+            android:id="@+id/chk_card_influx"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="InfluxDB"/>
+
+        <CheckBox
+            android:id="@+id/chk_card_cam"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="摄像头"/>
+
+        <CheckBox
+            android:id="@+id/chk_card_relay"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="中继节点(ESP32)"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginTop="4dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="心率数字字号:"
+            android:textSize="13sp"
+            android:textColor="#CCCCCC"/>
+
+        <SeekBar
+            android:id="@+id/seek_hr_size"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"/>
+
+        <TextView
+            android:id="@+id/txt_hr_size_val"
+            android:layout_width="52dp"
+            android:layout_height="wrap_content"
+            android:gravity="right"
+            android:textSize="13sp"
+            android:textColor="#FFFFFF"/>
+    </LinearLayout>
+
+    <!-- 字号实时预览 -->
+    <TextView
+        android:id="@+id/txt_hr_preview"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:text="72"
+        android:textColor="#2ECC71"
+        android:textStyle="bold"/>
+
+    <CheckBox
+        android:id="@+id/chk_heart_icon"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="心形图标"/>
+
+    <CheckBox
+        android:id="@+id/chk_minicam"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="小块视频口 (当前房间摄像头 2fps)"/>
+
+    <CheckBox
+        android:id="@+id/chk_src_row"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="状态信息行 (数据源 / 中继RSSI·服务地址)"/>
+</LinearLayout>

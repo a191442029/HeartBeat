@@ -2,7 +2,10 @@ package com.hrmlink.hrserver;
 
 import android.util.Log;
 
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
@@ -20,10 +23,18 @@ import fi.iki.elonen.NanoWSD;
 /**
  * 心率数据 HTTP/WS 服务（1:1 复刻 EXE webpush_server.py, 基于 NanoWSD 2.3.1）
  *
- * 路由（与 EXE 完全一致）:
- * - GET /              → HTML 演示页（INDEX_HTML 原样搬运, UTF-8）
- * - GET /api/heartrate → HeartBus 5字段快照（含 clients）, 2秒级轮询仅打 verbose 日志
- * - GET /ws            → WebSocket 升级（仅此路径允许升级, 对齐 EXE 路由）
+ * 路由（与 EXE webpush_server 完全一致）:
+ * - GET  /                     → HTML 演示页（INDEX_HTML 原样搬运, UTF-8）
+ * - GET  /api/heartrate        → _state 全字段快照（含 clients）, 2秒级轮询仅打 verbose 日志
+ * - GET  /ws                   → WebSocket 升级（接收端状态推送, 对齐 EXE 路由; 中继节点
+ *                                通道已迁独立 RelayWs 监听 0.0.0.0:8899, 见 RelayHub）
+ * - GET  /view                 → 远程看板页(P1-6, assets/view.html; WS /view 推快照+fMP4)
+ * - GET  /camera/list          → 相机列表 JSON([{name,is_default}]), 看板 tab 渲染用
+ * - POST /api/cancel_alarm     → 手动取消报警（EXE 无, 安卓补齐闭环; 兼容 GET）
+ * - GET  /camera/snapshot      → 报警快照 JPEG（?cam=相机名, 空=默认; 未就绪 503）
+ * - GET  /camera/clip          → 剪辑流式播放（?name=文件名, 支持 HTTP Range）
+ * - GET  /camera/live/index.m3u8 → HLS 实时流播放列表（?cam=相机名）
+ * - GET  /camera/live/segment.ts → HLS 分片（?cam=&seg=seg_NNNNN.ts, 白名单校验）
  *
  * WS 行为:
  * - 连接建立即推当前 4 字段快照; 之后每次 HeartBus 更新把 snapshotStateJson() 广播给全部客户端
@@ -63,10 +74,87 @@ public class HeartServer {
     private static final String MIME_HTML = "text/html; charset=utf-8";
     private static final String MIME_JSON = "application/json; charset=utf-8";
     private static final String MIME_TEXT = "text/plain; charset=utf-8";
+    private static final String MIME_JPEG = "image/jpeg";
+    private static final String MIME_MP4 = "video/mp4";
+    private static final String MIME_M3U8 = "application/vnd.apple.mpegurl";
+    private static final String MIME_TS = "video/mp2t";
+
+    /** HLS 分片文件名白名单: seg_00012.ts（防路径穿越, 对齐 EXE SEG_RE） */
+    private static final String SEG_PATTERN = "seg_\\d{5}\\.ts";
+
+    /**
+     * 摄像头能力提供者（由 HeartRateService 注入 CameraManager, 对齐 EXE set_camera_manager）:
+     * HeartServer 只管 HTTP, 文件定位/取帧交给提供者。
+     */
+    public interface CamProvider {
+        /** 指定摄像头最新JPEG快照帧; cam空=默认相机; 未就绪返回 null（HTTP 503） */
+        byte[] snapshotJpeg(String cam);
+
+        /** 剪辑文件: 仅允许 captures 目录下存在的 .mp4（防路径穿越）; 非法/不存在返回 null */
+        File clipFile(String name);
+
+        /** 摄像头 HLS 播放列表文件（cam空=默认相机）; 未运行返回 null（HTTP 404） */
+        File livePlaylist(String cam);
+
+        /** HLS 分片文件（seg 已按白名单校验）; 不存在返回 null */
+        File liveSegment(String cam, String seg);
+
+        /** 相机列表 JSON([{name,is_default}...]); 未启用/无相机返回 "[]"（看板 tab 渲染用） */
+        String camListJson();
+
+        /**
+         * 看板 MSE 按需推流（P1-6）: 为指定相机启动 fMP4 推流进程（一客户端一路, 严格按需）。
+         * sink=数据块回调（view-reader 线程）; onEnd=流结束回调（ffmpeg 退出/发送过载;
+         * 主动 stop 不回调）。返回 null=无法推流（未启用/未知相机/无可用地址）。
+         */
+        ViewStream startMseStream(String cam, ViewStream.Sink sink, Runnable onEnd);
+    }
+
+    private volatile CamProvider camProvider;
+
+    /** 注入摄像头提供者（服务运行前后均可） */
+    public void setCamProvider(CamProvider p) {
+        camProvider = p;
+    }
+
+    /** 注入 assets 访问上下文（HeartRateService 启动时调用, 看板页 view.html 读取用） */
+    public void setAssetsContext(android.content.Context c) {
+        assetsCtx = c.getApplicationContext();
+        viewHtml = null;
+    }
+
+    /** 看板页 HTML（assets/view.html, 懒加载缓存） */
+    private synchronized String loadViewHtml() {
+        if (viewHtml != null) return viewHtml;
+        android.content.Context c = assetsCtx;
+        if (c == null) return null;
+        try {
+            InputStream in = c.getAssets().open("view.html");
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            in.close();
+            viewHtml = out.toString("UTF-8");
+            return viewHtml;
+        } catch (Exception ex) {
+            Log.w(TAG, "读取 view.html 失败: " + ex);
+            return null;
+        }
+    }
 
     // ---- 运行状态 ----
     /** 当前 WS 客户端集合（并发安全: 广播线程/各连接读线程都会读写） */
     private final Set<HrSocket> clients = ConcurrentHashMap.newKeySet();
+
+    /**
+     * 看板 WS 客户端集合（P1-6, 独立于 /ws 接收端客户端, 不计入 ws_clients——
+     * 该计数的语义是"接收端在线数", 看板浏览器不应混入）
+     */
+    private final Set<ViewSocket> viewClients = ConcurrentHashMap.newKeySet();
+
+    private volatile android.content.Context assetsCtx = null;  // assets 读取上下文(setAssetsContext 注入)
+    private volatile String viewHtml = null;                    // 看板页缓存(懒加载)
 
     private volatile boolean running = false;
     private volatile String error = null;
@@ -75,10 +163,14 @@ public class HeartServer {
     private String host = null;                     // 仅在 synchronized 方法内读写
     private int port = 0;
 
-    /** HeartBus 监听: 主线程回调, 只投递广播任务不做 IO */
-    private final HeartBus.Listener busListener = new HeartBus.Listener() {
+    /**
+     * HeartBus 状态监听: 任意 _state 字段变化（心率/断连/info/报警/剪辑/HLS）都全量广播,
+     * 对齐 EXE webpush_server 各 set 方法均 _schedule_broadcast 的语义。
+     * 回调在主线程, 此处只往广播队列投递任务, 不做 IO。
+     */
+    private final HeartBus.StateListener busListener = new HeartBus.StateListener() {
         @Override
-        public void onHeartRate(int hr, String ts, String status) {
+        public void onStateChanged() {
             ScheduledExecutorService e = exec;
             if (running && e != null && !clients.isEmpty()) {
                 e.execute(new Runnable() {
@@ -114,7 +206,7 @@ public class HeartServer {
                 return t;
             }
         });
-        HeartBus.get().addListener(busListener);
+        HeartBus.get().addStateListener(busListener);
         try {
             Wsd server = new Wsd(host, port);
             server.start(SOCKET_READ_TIMEOUT_MS, true); // 绑定失败抛 IOException
@@ -136,7 +228,7 @@ public class HeartServer {
             return true;
         } catch (Exception ex) {
             this.error = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
-            HeartBus.get().removeListener(busListener);
+            HeartBus.get().removeStateListener(busListener);
             e.shutdownNow();
             this.ws = null;
             this.exec = null;
@@ -152,7 +244,7 @@ public class HeartServer {
             return;
         }
         running = false;
-        HeartBus.get().removeListener(busListener);
+        HeartBus.get().removeStateListener(busListener);
 
         ScheduledExecutorService e = exec;
         exec = null;
@@ -208,9 +300,9 @@ public class HeartServer {
 
     // ---------- 广播 / 心跳（运行在广播线程） ----------
 
-    /** 把当前 4 字段快照广播给所有客户端; 发送失败的客户端移除（对齐 EXE _broadcast/_send_to） */
+    /** 把当前快照广播给所有客户端(接收端+看板); 发送失败的接收端移除（对齐 EXE _broadcast/_send_to） */
     private void broadcastAll() {
-        if (clients.isEmpty()) {
+        if (clients.isEmpty() && viewClients.isEmpty()) {
             return;
         }
         String payload = HeartBus.get().snapshotStateJson();
@@ -219,6 +311,13 @@ public class HeartServer {
                 c.send(payload);
             } catch (Exception ex) {
                 dropClient(c, "发送失败: " + ex.getMessage());
+            }
+        }
+        for (ViewSocket c : viewClients) {
+            try {
+                c.send(payload);
+            } catch (Exception ignore) {
+                // 看板客户端发送失败不断链: 由心跳超时/视频路径自愈
             }
         }
     }
@@ -260,6 +359,12 @@ public class HeartServer {
                 // 连接可能已死, 忽略
             }
         }
+        for (ViewSocket c : viewClients) {
+            try {
+                c.close(NanoWSD.WebSocketFrame.CloseCode.GoingAway, why, false);
+            } catch (Exception ignore) {
+            }
+        }
     }
 
     /** 移除客户端并同步 HeartBus 计数; 顺手补发关闭帧促使对端读线程退出 */
@@ -290,11 +395,15 @@ public class HeartServer {
 
         @Override
         protected boolean isWebsocketRequested(NanoHTTPD.IHTTPSession session) {
-            return "/ws".equals(session.getUri()) && super.isWebsocketRequested(session);
+            String uri = session.getUri();
+            return ("/ws".equals(uri) || "/view".equals(uri)) && super.isWebsocketRequested(session);
         }
 
         @Override
         protected NanoWSD.WebSocket openWebSocket(NanoHTTPD.IHTTPSession handshake) {
+            if ("/view".equals(handshake.getUri())) {
+                return new ViewSocket(handshake);
+            }
             return new HrSocket(handshake);
         }
 
@@ -310,8 +419,216 @@ public class HeartServer {
                 return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.OK, MIME_JSON,
                         HeartBus.get().snapshotApiJson());
             }
+            if ("/api/cancel_alarm".equals(uri)) {
+                // 手动取消报警（EXE 无此接口, 安卓补齐闭环）: 立即复位 alarm 并广播, 接收端停铃
+                String method = session.getMethod().name();
+                if (!"POST".equals(method) && !"GET".equals(method)) {
+                    return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.METHOD_NOT_ALLOWED,
+                            MIME_TEXT, "405 Method Not Allowed");
+                }
+                HeartBus.get().cancelAlarm();
+                Log.i(TAG, "报警已手动取消(/api/cancel_alarm)");
+                return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.OK, MIME_JSON,
+                        "{\"ok\":true}");
+            }
+            if ("/api/settings".equals(uri)) {
+                // 与 EXE 双向参数同步(§6.5): GET=全量快照(对账), POST=接收同步包(LWW); token 鉴权
+                return handleSettings(session);
+            }
+            if ("/camera/snapshot".equals(uri)) {
+                return handleSnapshot(session);
+            }
+            if ("/camera/clip".equals(uri)) {
+                return handleClip(session);
+            }
+            if ("/camera/live/index.m3u8".equals(uri)) {
+                return handleLivePlaylist(session);
+            }
+            if ("/camera/live/segment.ts".equals(uri)) {
+                return handleLiveSegment(session);
+            }
+            if ("/view".equals(uri)) {
+                // 远程看板页（P1-6）: 心率/状态/报警/实时视频/回看
+                String html = loadViewHtml();
+                if (html == null) {
+                    return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.NOT_FOUND,
+                            MIME_TEXT, "view.html missing");
+                }
+                return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.OK, MIME_HTML, html);
+            }
+            if ("/camera/list".equals(uri)) {
+                // 相机列表(看板 tab 渲染用)
+                CamProvider p = camProvider;
+                return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.OK, MIME_JSON,
+                        p == null ? "[]" : p.camListJson());
+            }
             return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.NOT_FOUND, MIME_TEXT,
                     "404 Not Found");
+        }
+
+        // ---------- 摄像头联动路由（对齐 EXE 期3/期5） ----------
+
+        /** 参数同步路由: Bearer 头或 ?token= 鉴权, GET=快照/POST=同步包, 委托 SyncManager */
+        private NanoHTTPD.Response handleSettings(NanoHTTPD.IHTTPSession session) {
+            String expect = SyncManager.get().syncToken();
+            if (expect == null) {
+                return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.SERVICE_UNAVAILABLE,
+                        MIME_TEXT, "sync not running");
+            }
+            String got = null;
+            String hdr = session.getHeaders().get("authorization");
+            if (hdr != null && hdr.toLowerCase().startsWith("bearer ")) {
+                got = hdr.substring(7).trim();
+            }
+            if (got == null) {
+                java.util.List<String> q = session.getParameters().get("token");
+                if (q != null && !q.isEmpty()) got = q.get(0);
+            }
+            if (!expect.equals(got)) {
+                return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.UNAUTHORIZED,
+                        MIME_TEXT, "401 Unauthorized");
+            }
+            if ("POST".equals(session.getMethod().name())) {
+                java.util.Map<String, String> files = new java.util.HashMap<String, String>();
+                try {
+                    session.parseBody(files);
+                } catch (Exception e) {
+                    return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.BAD_REQUEST,
+                            MIME_TEXT, "bad body");
+                }
+                String body = files.get("postData");
+                return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.OK, MIME_JSON,
+                        SyncManager.get().applyPacketJson(body == null ? "{}" : body));
+            }
+            String snap = SyncManager.get().snapshotJson();
+            if (snap == null) {
+                return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.SERVICE_UNAVAILABLE,
+                        MIME_TEXT, "sync not running");
+            }
+            return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.OK, MIME_JSON, snap);
+        }
+
+        /** 报警期间快照: ?cam= 指定相机(空=默认); 帧未就绪 503（接收端显示等待占位） */
+        private NanoHTTPD.Response handleSnapshot(NanoHTTPD.IHTTPSession session) {
+            CamProvider p = camProvider;
+            if (p == null) {
+                return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.SERVICE_UNAVAILABLE,
+                        MIME_JSON, "{\"error\":\"no snapshot\"}");
+            }
+            byte[] jpeg = p.snapshotJpeg(session.getParameters().get("cam") == null
+                    ? "" : session.getParameters().get("cam").get(0));
+            if (jpeg == null || jpeg.length == 0) {
+                return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.SERVICE_UNAVAILABLE,
+                        MIME_JSON, "{\"error\":\"no snapshot\"}");
+            }
+            return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.OK, MIME_JPEG,
+                    new java.io.ByteArrayInputStream(jpeg), jpeg.length);
+        }
+
+        /**
+         * 剪辑流式播放: 仅允许 captures 目录下 .mp4（防路径穿越）;
+         * 支持 HTTP Range（手机播放器拖动/边下边播, 对齐 EXE FileResponse 原生 Range）。
+         */
+        private NanoHTTPD.Response handleClip(NanoHTTPD.IHTTPSession session) {
+            CamProvider p = camProvider;
+            java.util.List<String> names = session.getParameters().get("name");
+            String name = names == null || names.isEmpty() ? "" : names.get(0);
+            File f = p == null ? null : p.clipFile(name);
+            if (f == null) {
+                return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.NOT_FOUND,
+                        MIME_JSON, "{\"error\":\"not found\"}");
+            }
+            long len = f.length();
+            String range = session.getHeaders().get("range");
+            long start = 0;
+            long end = len - 1;
+            NanoHTTPD.Response.Status st = NanoHTTPD.Response.Status.OK;
+            if (range != null && range.startsWith("bytes=") && len > 0) {
+                // 解析 bytes=start-[end]: 只处理单区间; start 越界返回 416
+                String spec = range.substring(6).split(",")[0].trim();
+                int dash = spec.indexOf('-');
+                try {
+                    long s = dash == 0 ? 0 : Long.parseLong(spec.substring(0, dash).trim());
+                    long e = dash == spec.length() - 1 ? len - 1
+                            : Long.parseLong(spec.substring(dash + 1).trim());
+                    if (s >= len) {
+                        return NanoHTTPD.newFixedLengthResponse(
+                                NanoHTTPD.Response.Status.RANGE_NOT_SATISFIABLE, MIME_TEXT,
+                                "416 Range Not Satisfiable");
+                    }
+                    start = s;
+                    end = Math.min(e, len - 1);
+                    st = NanoHTTPD.Response.Status.PARTIAL_CONTENT;
+                } catch (NumberFormatException ignore) {
+                    // 非法 Range 按无 Range 全量返回
+                }
+            }
+            try {
+                InputStream in = new FileInputStream(f);
+                long skip = in.skip(start);
+                if (skip < start) {
+                    try { in.close(); } catch (IOException ignored) {}
+                    return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.RANGE_NOT_SATISFIABLE,
+                            MIME_TEXT, "416 Range Not Satisfiable");
+                }
+                long contentLen = end - start + 1;
+                NanoHTTPD.Response r = NanoHTTPD.newFixedLengthResponse(st, MIME_MP4, in, contentLen);
+                if (st == NanoHTTPD.Response.Status.PARTIAL_CONTENT) {
+                    r.addHeader("Content-Range", "bytes " + start + "-" + end + "/" + len);
+                }
+                r.addHeader("Accept-Ranges", "bytes");
+                return r;
+            } catch (IOException ex) {
+                return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.INTERNAL_ERROR,
+                        MIME_TEXT, "500 read error");
+            }
+        }
+
+        /** 报警相机 HLS m3u8 播放列表(?cam=); 未运行/未就绪 404（对齐 EXE handle_live_playlist） */
+        private NanoHTTPD.Response handleLivePlaylist(NanoHTTPD.IHTTPSession session) {
+            CamProvider p = camProvider;
+            java.util.List<String> cams = session.getParameters().get("cam");
+            File f = p == null ? null
+                    : p.livePlaylist(cams == null || cams.isEmpty() ? "" : cams.get(0));
+            if (f == null || !f.isFile()) {
+                return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.NOT_FOUND,
+                        MIME_JSON, "{\"error\":\"no live\"}");
+            }
+            return fileResponse(f, MIME_M3U8, "no-cache");
+        }
+
+        /** HLS 分片(?cam=&seg=seg_00001.ts); 文件名白名单防路径穿越（对齐 EXE handle_live_segment） */
+        private NanoHTTPD.Response handleLiveSegment(NanoHTTPD.IHTTPSession session) {
+            CamProvider p = camProvider;
+            java.util.List<String> cams = session.getParameters().get("cam");
+            java.util.List<String> segs = session.getParameters().get("seg");
+            String seg = segs == null || segs.isEmpty() ? "" : segs.get(0);
+            if (!seg.matches(SEG_PATTERN)) {
+                return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.BAD_REQUEST,
+                        MIME_JSON, "{\"error\":\"bad seg\"}");
+            }
+            File f = p == null ? null
+                    : p.liveSegment(cams == null || cams.isEmpty() ? "" : cams.get(0), seg);
+            if (f == null || !f.isFile()) {
+                return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.NOT_FOUND,
+                        MIME_JSON, "{\"error\":\"not found\"}");
+            }
+            return fileResponse(f, MIME_TS, null);
+        }
+
+        private NanoHTTPD.Response fileResponse(File f, String mime, String cacheControl) {
+            try {
+                InputStream in = new FileInputStream(f);
+                NanoHTTPD.Response r = NanoHTTPD.newFixedLengthResponse(
+                        NanoHTTPD.Response.Status.OK, mime, in, f.length());
+                if (cacheControl != null) {
+                    r.addHeader("Cache-Control", cacheControl);
+                }
+                return r;
+            } catch (IOException ex) {
+                return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.INTERNAL_ERROR,
+                        MIME_TEXT, "500 read error");
+            }
         }
     }
 
@@ -367,6 +684,143 @@ public class HeartServer {
         @Override
         protected void onException(IOException exception) {
             dropClient(this, "连接异常: " + exception.getMessage());
+        }
+    }
+
+    /**
+     * 看板 WS 客户端（P1-6）: 文本帧=状态快照（与 /ws 同 payload 广播）,
+     * 二进制帧=fMP4 视频块（仅订阅期间）。live 订阅命令严格按需起推流进程,
+     * 断开/切换/服务停止即销毁——"浏览器开哪路推哪路"。
+     * 视频帧经 per-socket 单线程 vexec 发送（NanoWSD send 同步 IO,
+     * 不与广播线程/其他客户端互阻塞）。
+     */
+    private class ViewSocket extends HrSocket {
+        private volatile ViewStream stream = null;
+        private final java.util.concurrent.ExecutorService vexec;
+
+        ViewSocket(NanoHTTPD.IHTTPSession handshake) {
+            super(handshake);
+            vexec = Executors.newSingleThreadExecutor(new ThreadFactory() {
+                @Override
+                public Thread newThread(Runnable r) {
+                    Thread t = new Thread(r, "view-ws");
+                    t.setDaemon(true);
+                    return t;
+                }
+            });
+        }
+
+        @Override
+        protected void onOpen() {
+            lastAliveMs = System.currentTimeMillis();
+            viewClients.add(this);
+            Log.i(TAG, "看板客户端接入, 当前=" + viewClients.size());
+            ScheduledExecutorService e = exec;
+            if (e != null) {
+                e.execute(new Runnable() {
+                    @Override
+                    public void run() {
+                        sendSnapshotTo(ViewSocket.this);
+                    }
+                });
+            }
+        }
+
+        @Override
+        protected void onClose(NanoWSD.WebSocketFrame.CloseCode code, String reason, boolean initiatedByRemote) {
+            stopLive();
+            vexec.shutdownNow();
+            viewClients.remove(this);
+            Log.i(TAG, "看板客户端断开, 当前=" + viewClients.size());
+        }
+
+        @Override
+        protected void onException(IOException exception) {
+            stopLive();
+            vexec.shutdownNow();
+            viewClients.remove(this);
+        }
+
+        @Override
+        protected void onMessage(NanoWSD.WebSocketFrame message) {
+            lastAliveMs = System.currentTimeMillis();
+            String text;
+            try {
+                text = message.getTextPayload();
+            } catch (Exception e) {
+                return;
+            }
+            if (text == null || text.isEmpty()) return;
+            org.json.JSONObject cmd;
+            try {
+                cmd = new org.json.JSONObject(text);
+            } catch (Exception e) {
+                return;
+            }
+            String c = cmd.optString("cmd", "");
+            if ("live".equals(c)) {
+                startLive(cmd.optString("cam", ""));
+            } else if ("live_stop".equals(c)) {
+                stopLive();
+            }
+        }
+
+        /** 订阅实时流: 切换相机先停旧; 相机不可用回 live_err 文本提示 */
+        private void startLive(String cam) {
+            stopLive();
+            CamProvider p = camProvider;
+            final ViewSocket self = this;
+            ViewStream s = p == null ? null : p.startMseStream(cam, new ViewStream.Sink() {
+                @Override
+                public void onFrame(final byte[] frame) {
+                    vexec.execute(new Runnable() {
+                        @Override
+                        public void run() {
+                            try {
+                                self.send(frame);   // NanoWSD send(byte[]) = 二进制帧
+                            } catch (Exception ignore) {
+                            }
+                        }
+                    });
+                }
+            }, new Runnable() {
+                @Override
+                public void run() {
+                    // ffmpeg 退出(相机断流)或发送过载: 提示客户端自动重试
+                    notifyText(self, "{\"type\":\"live_end\",\"why\":\"stream_ended\"}");
+                }
+            });
+            if (s == null) {
+                notifyText(this, "{\"type\":\"live_err\",\"why\":\"camera_unavailable\"}");
+                return;
+            }
+            stream = s;
+            Log.i(TAG, "看板实时流订阅: " + cam);
+        }
+
+        /** 停止推流（幂等） */
+        private void stopLive() {
+            ViewStream s = stream;
+            stream = null;
+            if (s != null) {
+                s.stop();
+            }
+        }
+    }
+
+    /** 向单个看板客户端发文本提示（经其发送线程串行, 防与视频帧交错写坏帧） */
+    private void notifyText(final ViewSocket c, final String json) {
+        try {
+            c.vexec.execute(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        c.send(json);
+                    } catch (Exception ignore) {
+                    }
+                }
+            });
+        } catch (Exception ignore) {
         }
     }
 

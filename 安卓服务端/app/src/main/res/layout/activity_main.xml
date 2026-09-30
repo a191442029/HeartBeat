@@ -1,123 +1,338 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 竖屏兼容布局: 上顶栏, 中部大号心率+状态行+波形, 底部按钮行左对齐 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!--
+  数字大屏主布局(横屏 1280×800, 对齐 ui_preview.html 定稿 §7):
+  - 顶栏: 标题+版本 | 记录 | 设置
+  - 中部: 左列(状态角标×2 + 大数字行 + 小块视频口) | 右侧波形铺满 + 报警覆盖层(原位替换)
+  - 底部: 7 张状态卡片(手环/WS/Tailscale/MQTT/InfluxDB/摄像头/中继节点, 显隐走 Prefs)
+  报警覆盖层盖住波形区: 快照大图 + 红横幅(消息+取消按钮) + 相机tab + 回看按钮 + 剪辑生成提示
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
     android:background="#14141A"
-    android:fitsSystemWindows="true"
-    android:padding="12dp">
+    android:fitsSystemWindows="true">
 
-    <!-- 顶栏: 应用名+版本 | 设置按钮 -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="HRHub服务端"
-            android:textColor="#FFFFFF"
-            android:textSize="20sp"
-            android:textStyle="bold"/>
-
-        <TextView
-            android:id="@+id/txt_version"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginLeft="8dp"
-            android:text="v1.0"
-            android:textColor="#99FFFFFF"
-            android:textSize="13sp"/>
-
-        <View
-            android:layout_width="0dp"
-            android:layout_height="1dp"
-            android:layout_weight="1"/>
-
-        <Button
-            android:id="@+id/btn_settings"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:minWidth="0dp"
-            android:text="设置"/>
-    </LinearLayout>
-
-    <!-- 中部: 大号心率+心形 -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="match_parent"
         android:orientation="vertical"
-        android:gravity="center"
-        android:layout_marginTop="8dp">
+        android:padding="10dp">
 
+        <!-- 顶栏 -->
         <LinearLayout
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical">
 
-            <ImageView
-                android:id="@+id/img_heart"
-                android:layout_width="52dp"
-                android:layout_height="52dp"
-                android:src="@drawable/ic_heart"/>
-
             <TextView
-                android:id="@+id/txt_hr"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginLeft="16dp"
-                android:text="--"
-                android:textColor="#FF5A5A"
-                android:textSize="72sp"
+                android:text="HRHub服务端"
+                android:textColor="#FFFFFF"
+                android:textSize="18sp"
                 android:textStyle="bold"/>
 
             <TextView
-                android:id="@+id/txt_bpm"
+                android:id="@+id/txt_version"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginLeft="8dp"
-                android:text="BPM"
-                android:textColor="#FF5A5A"
-                android:textSize="22sp"/>
+                android:text="v1.0"
+                android:textColor="#99FFFFFF"
+                android:textSize="12sp"/>
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1"/>
+
+            <Button
+                android:id="@+id/btn_records"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="0dp"
+                android:text="记录"/>
+
+            <Button
+                android:id="@+id/btn_settings"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginLeft="6dp"
+                android:minWidth="0dp"
+                android:text="设置"/>
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/txt_status"
+        <!-- 中部: 左列 + 波形 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:layout_marginTop="6dp">
+
+            <!-- 左列 -->
+            <LinearLayout
+                android:layout_width="330dp"
+                android:layout_height="match_parent"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/txt_src"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="数据源: --"
+                    android:textColor="#A0A0B8"
+                    android:textSize="14sp"/>
+
+                <TextView
+                    android:id="@+id/txt_relay"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="中继 -- · 服务 --"
+                    android:textColor="#707088"
+                    android:textSize="11sp"/>
+
+                <!-- 大数字行: 横排(心形+数字+BPM); 字号超宽时代码切纵向(数字上/心形下) -->
+                <LinearLayout
+                    android:id="@+id/hr_row"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_horizontal|center_vertical"
+                    android:layout_marginTop="2dp">
+
+                    <ImageView
+                        android:id="@+id/img_heart"
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
+                        android:src="@drawable/ic_heart"/>
+
+                    <TextView
+                        android:id="@+id/txt_hr"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginLeft="10dp"
+                        android:includeFontPadding="false"
+                        android:text="--"
+                        android:textColor="#FF5A5A"
+                        android:textSize="150sp"
+                        android:textStyle="bold"/>
+
+                    <TextView
+                        android:id="@+id/txt_bpm"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginLeft="8dp"
+                        android:text="BPM"
+                        android:textColor="#FF5A5A"
+                        android:textSize="24sp"/>
+                </LinearLayout>
+
+                <View
+                    android:layout_width="1dp"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"/>
+
+                <!-- 小块视频口: 当前绑定房间摄像头(未绑定→默认), 2fps 快照轮询, 点击进摄像头墙 -->
+                <FrameLayout
+                    android:id="@+id/mini_cam"
+                    android:layout_width="260dp"
+                    android:layout_height="146dp"
+                    android:layout_gravity="center_horizontal|bottom"
+                    android:background="#000000">
+
+                    <ImageView
+                        android:id="@+id/img_mini"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:scaleType="centerCrop"/>
+
+                    <TextView
+                        android:id="@+id/mini_tag"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="left|top"
+                        android:layout_margin="4dp"
+                        android:background="@drawable/bg_minicam_tag"
+                        android:paddingLeft="6dp"
+                        android:paddingRight="6dp"
+                        android:paddingTop="2dp"
+                        android:paddingBottom="2dp"
+                        android:text="● --"
+                        android:textColor="#FFFFFF"
+                        android:textSize="10sp"/>
+
+                    <TextView
+                        android:id="@+id/mini_meta"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="right|bottom"
+                        android:layout_margin="4dp"
+                        android:background="@drawable/bg_minicam_tag"
+                        android:paddingLeft="6dp"
+                        android:paddingRight="6dp"
+                        android:paddingTop="2dp"
+                        android:paddingBottom="2dp"
+                        android:text="2fps"
+                        android:textColor="#BBBBBB"
+                        android:textSize="9sp"/>
+                </FrameLayout>
+            </LinearLayout>
+
+            <!-- 右侧: 波形 + 报警覆盖层(原位替换, 不弹窗) -->
+            <FrameLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:layout_marginLeft="8dp">
+
+                <com.hrmlink.hrserver.HeartWaveView
+                    android:id="@+id/wave"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"/>
+
+                <!-- 报警层: 快照大图+红横幅+相机tab+回看 -->
+                <FrameLayout
+                    android:id="@+id/alarm_layer"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="#000000"
+                    android:visibility="gone">
+
+                    <ImageView
+                        android:id="@+id/img_alarm"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:scaleType="fitCenter"/>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:layout_gravity="top">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:background="@drawable/bg_banner"
+                            android:padding="6dp">
+
+                            <TextView
+                                android:id="@+id/txt_alarm_msg"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:layout_marginLeft="6dp"
+                                android:text="● 报警中"
+                                android:textColor="#FFFFFF"
+                                android:textSize="15sp"
+                                android:textStyle="bold"/>
+
+                            <Button
+                                android:id="@+id/btn_cancel_alarm"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:minWidth="0dp"
+                                android:text="取消本次报警"/>
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:id="@+id/alarm_tabs"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:layout_marginTop="4dp"/>
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/txt_clip_gen"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="bottom|center_horizontal"
+                        android:layout_marginBottom="8dp"
+                        android:text="报警剪辑生成中 · 稍候可回看"
+                        android:textColor="#BBBBBB"
+                        android:textSize="12sp"/>
+
+                    <Button
+                        android:id="@+id/btn_replay"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="right|bottom"
+                        android:layout_margin="8dp"
+                        android:minWidth="0dp"
+                        android:text="▶ 回看报警视频"
+                        android:visibility="gone"/>
+                </FrameLayout>
+            </FrameLayout>
+        </LinearLayout>
+
+        <!-- 底部 7 状态卡片(显隐走 Prefs) -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:gravity="center"
-            android:text="设备: 未配置设备 | 连接: 未连接 | WS客户端: 0 | 服务地址: auto:8765"
-            android:textColor="#99FFFFFF"
-            android:textSize="13sp"/>
+            android:orientation="horizontal"
+            android:layout_marginTop="6dp">
+
+            <LinearLayout android:id="@+id/card1" style="@style/DashCard">
+                <TextView style="@style/DashCardK" android:text="手环"/>
+                <LinearLayout style="@style/DashCardV">
+                    <TextView android:id="@+id/d1" style="@style/DashCardDot"/>
+                    <TextView android:id="@+id/v1" style="@style/DashCardVal" android:text="--"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout android:id="@+id/card2" style="@style/DashCard">
+                <TextView style="@style/DashCardK" android:text="WS 客户端"/>
+                <LinearLayout style="@style/DashCardV">
+                    <TextView android:id="@+id/d2" style="@style/DashCardDot"/>
+                    <TextView android:id="@+id/v2" style="@style/DashCardVal" android:text="--"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout android:id="@+id/card3" style="@style/DashCard">
+                <TextView style="@style/DashCardK" android:text="Tailscale"/>
+                <LinearLayout style="@style/DashCardV">
+                    <TextView android:id="@+id/d3" style="@style/DashCardDot"/>
+                    <TextView android:id="@+id/v3" style="@style/DashCardVal" android:text="--"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout android:id="@+id/card4" style="@style/DashCard">
+                <TextView style="@style/DashCardK" android:text="MQTT"/>
+                <LinearLayout style="@style/DashCardV">
+                    <TextView android:id="@+id/d4" style="@style/DashCardDot"/>
+                    <TextView android:id="@+id/v4" style="@style/DashCardVal" android:text="--"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout android:id="@+id/card5" style="@style/DashCard">
+                <TextView style="@style/DashCardK" android:text="InfluxDB"/>
+                <LinearLayout style="@style/DashCardV">
+                    <TextView android:id="@+id/d5" style="@style/DashCardDot"/>
+                    <TextView android:id="@+id/v5" style="@style/DashCardVal" android:text="--"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout android:id="@+id/card6" style="@style/DashCard">
+                <TextView style="@style/DashCardK" android:text="摄像头 ›"/>
+                <LinearLayout style="@style/DashCardV">
+                    <TextView android:id="@+id/d6" style="@style/DashCardDot"/>
+                    <TextView android:id="@+id/v6" style="@style/DashCardVal" android:text="--"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout android:id="@+id/card7" style="@style/DashCard" android:layout_marginRight="0dp">
+                <TextView style="@style/DashCardK" android:text="中继节点"/>
+                <LinearLayout style="@style/DashCardV">
+                    <TextView android:id="@+id/d7" style="@style/DashCardDot"/>
+                    <TextView android:id="@+id/v7" style="@style/DashCardVal" android:text="--"/>
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
     </LinearLayout>
-
-    <!-- 波形占满剩余空间 -->
-    <com.hrmlink.hrserver.HeartWaveView
-        android:id="@+id/wave"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:layout_marginTop="8dp"
-        android:layout_marginLeft="4dp"
-        android:layout_marginRight="4dp"/>
-
-    <!-- 底部按钮行: 横排左对齐 -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginTop="8dp">
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textSize="12sp"
-            android:textColor="#999999"
-            android:text="监测服务已自动运行(启停/悬浮窗开关在设置页)"/>
-    </LinearLayout>
-</LinearLayout>
+</FrameLayout>

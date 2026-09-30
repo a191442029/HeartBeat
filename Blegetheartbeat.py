@@ -51,6 +51,8 @@ class BLEHeartRateMonitor:
         self.heart_rate_callback = None
 
         self.filter_empty: bool = True
+        # 扫描到的RSSI平滑值(按地址缓存, 与上次扫描取均值减少单包抖动)
+        self.rssi_map: dict = {}
 
     async def scan_devices(self, timeout: float = 5.0) -> List:
         """
@@ -60,11 +62,23 @@ class BLEHeartRateMonitor:
             timeout: 扫描超时时间(秒)
 
         Returns:
-            发现的设备列表
+            发现的设备列表(按信号强度从强到弱排序)
         """
-        self.devices = await BleakScanner.discover()
+        # return_adv=True 同时取回广播数据(含RSSI), 无需连接即可获得信号强度
+        scan_result = await BleakScanner.discover(timeout=timeout, return_adv=True)
+        self.devices = [d for d, _ in scan_result.values()]
+        # RSSI平滑: 与上次扫描值取均值, 减少单包瞬时抖动
+        for address, (_, adv) in scan_result.items():
+            rssi = getattr(adv, "rssi", None)
+            if rssi is None:
+                continue
+            prev = self.rssi_map.get(address)
+            self.rssi_map[address] = (rssi + prev) // 2 if prev is not None else rssi
         # 过滤掉名称为None的设备
-        return [d for d in self.devices if d.name is not None] if self.filter_empty else self.devices
+        result = [d for d in self.devices if d.name is not None] if self.filter_empty else list(self.devices)
+        # 按RSSI从强到弱排序(无RSSI的排最后)
+        result.sort(key=lambda d: self.rssi_map.get(d.address, -999), reverse=True)
+        return result
 
     async def connect_device(self, device_address: str) -> tuple[bool, str]:
         """
@@ -76,6 +90,14 @@ class BLEHeartRateMonitor:
         Returns:
             连接是否成功
         """
+        # 新连接前先清理旧client(重连/适配器自愈场景防旧WinRT会话泄漏)
+        if self.client is not None:
+            try:
+                if self.client.is_connected:
+                    await self.client.disconnect()
+            except Exception as e:
+                logger.warning(f"清理旧BLE连接失败: {e}")
+            self.client = None
         self.client = BleakClient(device_address)
         await self.client.connect()
         if await check_service(self.client):

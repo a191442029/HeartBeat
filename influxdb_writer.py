@@ -35,11 +35,13 @@ class InfluxDBWriter:
     def connect(self):
         """连接到InfluxDB"""
         try:
-            # 创建InfluxDB客户端
+            # 创建InfluxDB客户端(timeout毫秒: 真实网络调用在每秒定时写入,
+            # 不限超时则服务器不可达时每次写入都会长时间阻塞Qt主线程)
             self.client = InfluxDBClientLib(
                 url=self.url,
                 token=self.token,
-                org=self.org
+                org=self.org,
+                timeout=5000
             )
             
             # 获取写入API

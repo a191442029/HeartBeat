@@ -49,6 +49,26 @@ public class InfluxWriter {
 
     private HeartBus.Listener listener;
 
+    // ---- 写入状态(供大屏 InfluxDB 状态卡片) ----
+    private volatile boolean lastOk = false;
+    private volatile String lastErr = "";
+    private volatile long lastOkMs = 0;
+
+    /** 最近一次写入是否成功(未启用/从未写入=false) */
+    public boolean isWriteOk() {
+        return lastOk;
+    }
+
+    /** 最近一次写入失败原因(空=无) */
+    public String getWriteError() {
+        return lastErr;
+    }
+
+    /** 最近一次成功写入时刻(0=从未成功) */
+    public long getLastOkMs() {
+        return lastOkMs;
+    }
+
     /** 读 Prefs [InfluxDB] 配置(快照式: 构造后配置变更需重建实例) */
     public InfluxWriter(Context context) {
         app = context.getApplicationContext();
@@ -181,12 +201,16 @@ public class InfluxWriter {
                     .post(RequestBody.create(TEXT_PLAIN, line))
                     .build();
         } catch (IllegalArgumentException e) {
+            lastOk = false;
+            lastErr = "地址非法";
             Log.w(TAG, "写入心率数据到InfluxDB失败: 服务器地址非法 " + e.getMessage());
             return;
         }
         PushChannels.httpClient().newCall(req).enqueue(new Callback() {
             @Override
             public void onFailure(Call call, IOException e) {
+                lastOk = false;
+                lastErr = String.valueOf(e.getMessage());
                 Log.w(TAG, "写入心率数据到InfluxDB失败: " + e);
             }
 
@@ -194,8 +218,13 @@ public class InfluxWriter {
             public void onResponse(Call call, Response resp) {
                 try {
                     if (resp.isSuccessful()) {
+                        lastOk = true;
+                        lastErr = "";
+                        lastOkMs = System.currentTimeMillis();
                         Log.d(TAG, "已写入心率数据到InfluxDB: " + hr + " BPM");
                     } else {
+                        lastOk = false;
+                        lastErr = "HTTP " + resp.code();
                         Log.w(TAG, "写入心率数据到InfluxDB失败: HTTP "
                                 + resp.code() + " " + readBody(resp));
                     }

@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/bg_dark">
+
+    <!-- 顶栏: 返回 + 标题 + 路数 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingLeft="12dp"
+        android:paddingRight="12dp">
+
+        <Button
+            android:id="@+id/btn_back"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:paddingLeft="14dp"
+            android:paddingRight="14dp"
+            android:text="‹ 返回"
+            android:textSize="13sp"/>
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginLeft="12dp"
+            android:text="摄像头墙"
+            android:textColor="#FFFFFFFF"
+            android:textSize="17sp"
+            android:textStyle="bold"/>
+
+        <TextView
+            android:id="@+id/wall_count"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#8888A0"
+            android:textSize="13sp"/>
+    </LinearLayout>
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <!-- 宫格容器: 每行 2 格由代码动态填充 -->
+        <LinearLayout
+            android:id="@+id/wall_grid"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:padding="6dp"/>
+
+        <TextView
+            android:id="@+id/wall_empty"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:gravity="center"
+            android:text="未配置摄像头或摄像头链路未启用\n（设置 → 摄像头）"
+            android:textColor="#8888A0"
+            android:textSize="15sp"
+            android:visibility="gone"/>
+    </FrameLayout>
+</LinearLayout>

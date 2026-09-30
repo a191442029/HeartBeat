@@ -425,12 +425,28 @@ export default class VpnExtAbility extends VpnExtensionAbility {
       const alarm = (p.alarm as boolean) === true;
       const info = (p.info as string) ?? '';
       const tsStr = (p.timestamp as string) ?? '';
+      const clipUrl = (p.clip_url as string) ?? ''; // 期3: 报警剪辑流式播放地址(空=未成型)
+      // 报警视频联动: 报警房间与绑定摄像头名(空=未绑定, UI回退默认摄像头)
+      const alarmCam = (p.alarm_cam as string) ?? '';
+      const alarmRoom = (p.alarm_room as string) ?? '';
+      // 期5: 报警房间摄像头HLS实时流m3u8地址(空=未就绪, UI走快照轮询兜底)
+      const alarmLive = (p.alarm_live as string) ?? '';
+      // 期4: 解析数据源状态 hr_source(对象缺失时保持上次值, 由后续 presentHr 带出刷新)
+      const srcObj = p.hr_source as Record<string, Object> | undefined;
+      if (srcObj !== undefined && srcObj !== null) {
+        this.srcPhase = (srcObj.phase as string) ?? '';
+        this.srcName = (srcObj.source as string) ?? '';
+        this.srcTarget = (srcObj.target as string) ?? '';
+        const rssiVal = srcObj.rssi as number;
+        this.srcRssi = typeof rssiVal === 'number' ? rssiVal : 1; // 非数值/缺失视为无效
+      }
       // 写心率数据共享文件: UI 1 秒轮询读取渲染主界面
       try {
         const path = this.context.filesDir + HR_DATA_FILE;
         const content = JSON.stringify({
           heart_rate: hr, timestamp: tsStr, status: (p.status as string) ?? '',
-          info: info, alarm: alarm, src: src, ts: Date.now()
+          info: info, alarm: alarm, clip_url: clipUrl, src: src, ts: Date.now(),
+          alarm_cam: alarmCam, alarm_room: alarmRoom, alarm_live: alarmLive
         });
         const file = fs.openSync(path, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
         fs.writeSync(file.fd, content);
@@ -624,6 +640,12 @@ export default class VpnExtAbility extends VpnExtensionAbility {
   private noteLastUpdateMs: number = 0;
   private noteLastHr: number = -1;
   private noteLastAlarm: boolean = false;
+  // 数据源状态(快照顶层 hr_source): 节点房间名/切换目标/信号强度
+  private srcPhase: string = ''; // 空串=尚未收到 hr_source, 不展示数据源文案
+  private srcName: string = '';
+  private srcTarget: string = '';
+  private srcRssi: number = 1; // <=0 视为有效, 缺失/非数值置 1(无效)
+  private noteLastSrc: string = ''; // 上次通知展示的数据源文案(变化即立即刷新)
 
   private ensureNoteAgent(): void {
     if (this.noteWantAgent) {
@@ -688,21 +710,43 @@ export default class VpnExtAbility extends VpnExtensionAbility {
     this.publishHrNote('心率监测', '等待连接 EXE...');
   }
 
-  // 节流: 心率变化>=3 或报警变化 或 距上次>=5秒
+  // 构造数据源文案(并入通知正文), phase 为空(未收到 hr_source)时返回空串
+  private buildSourceText(): string {
+    if (this.srcPhase === 'active') {
+      return this.srcRssi < 0 ? `数据源: ${this.srcName} · ${this.srcRssi}dBm` : `数据源: ${this.srcName}`;
+    }
+    if (this.srcPhase === 'switching') {
+      return (this.srcName !== '' && this.srcTarget !== '')
+        ? `切换中: ${this.srcName} → ${this.srcTarget}` : '正在切换数据源…';
+    }
+    if (this.srcPhase === 'direct') {
+      return '数据源: PC直连';
+    }
+    if (this.srcPhase === 'none') {
+      return '数据源: 未连接';
+    }
+    return '';
+  }
+
+  // 节流: 心率变化>=3 或报警变化 或 数据源文案变化 或 距上次>=5秒
   private pushHrNotification(hr: number, info: string, alarm: boolean): void {
     if (!this.noteShown) {
       return;
     }
     const now = Date.now();
-    const significant = this.noteLastHr < 0 || Math.abs(hr - this.noteLastHr) >= 3 || alarm !== this.noteLastAlarm;
+    const srcText = this.buildSourceText();
+    const significant = this.noteLastHr < 0 || Math.abs(hr - this.noteLastHr) >= 3
+      || alarm !== this.noteLastAlarm || srcText !== this.noteLastSrc;
     if (!significant && now - this.noteLastUpdateMs < HR_NOTE_MIN_MS) {
       return;
     }
     this.noteLastUpdateMs = now;
     this.noteLastHr = hr;
     this.noteLastAlarm = alarm;
+    this.noteLastSrc = srcText;
     const title = hr > 0 ? `❤ ${hr} BPM` : '心率监测';
-    const text = alarm ? `⚠ 心率警报!` : (info !== '' ? info : '心率接收中');
+    const baseText = alarm ? `⚠ 心率警报!` : (info !== '' ? info : '心率接收中');
+    const text = srcText !== '' ? baseText + '\n' + srcText : baseText;
     this.publishHrNote(title, text);
   }
 
@@ -712,6 +756,7 @@ export default class VpnExtAbility extends VpnExtensionAbility {
     }
     this.noteShown = false;
     this.noteLastHr = -1;
+    this.noteLastSrc = '';
     try {
       notificationManager.cancel(HR_NOTE_ID).catch(() => {
       });

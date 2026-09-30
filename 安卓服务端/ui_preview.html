@@ -1,0 +1,1200 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HRHub 安卓服务端 · UI 预览（1280×800 横屏）</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background:#0A0A0F; font-family:"Microsoft YaHei","PingFang SC",sans-serif;
+    color:#E8E8F0; min-height:100vh; display:flex; flex-direction:column; align-items:center;
+    padding:20px 12px 60px;
+  }
+  /* ===== 预览控制条（非真机UI） ===== */
+  .ctrl {
+    display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:center;
+    margin-bottom:18px; padding:12px 18px; background:#15151D; border-radius:12px;
+    border:1px solid #26262F;
+  }
+  .ctrl .lbl { color:#8888A0; font-size:13px; margin-right:2px; }
+  .ctrl button {
+    background:#1F1F2A; color:#CCCCE0; border:1px solid #333342; border-radius:8px;
+    padding:7px 16px; font-size:13px; cursor:pointer; transition:.15s;
+  }
+  .ctrl button:hover { border-color:#5A5A78; }
+  .ctrl button.on { background:#2E4A6E; border-color:#4A7AB0; color:#fff; }
+  .ctrl button:disabled { opacity:.35; cursor:not-allowed; }
+  .hint { color:#66667E; font-size:12px; margin-top:12px; text-align:center; line-height:1.8; }
+
+  /* ===== 设备外框（GM800 横屏 1280x800） ===== */
+  #device {
+    width:1280px; height:800px;
+    background:#14141A; border-radius:22px; border:3px solid #2A2A36;
+    box-shadow:0 20px 60px rgba(0,0,0,.6);
+    display:flex; flex-direction:column; overflow:hidden;
+  }
+  @media (max-width:1360px){ #device{ width:96vw; height:60vw; min-height:460px; } }
+
+  /* ===== 顶栏 ===== */
+  .topbar {
+    display:flex; align-items:center; padding:10px 16px; gap:10px; flex-shrink:0;
+    border-bottom:1px solid #22222C;
+  }
+  .topbar .app { font-size:17px; font-weight:bold; color:#FFF; }
+  .topbar .ver { font-size:12px; color:#8A8AA0; }
+  .chip {
+    font-size:11px; padding:2px 8px; border-radius:10px; background:#1E2A1E;
+    color:#7ED87E; border:1px solid #2E4A2E;
+  }
+  .topbar .sp { flex:1; }
+  .topbar .btn {
+    background:#22222E; border:1px solid #343444; color:#CCC; border-radius:8px;
+    padding:6px 18px; font-size:13px; cursor:pointer;
+  }
+
+  /* ================= 仪表盘页 ================= */
+  #pageDash { flex:1; display:flex; flex-direction:column; min-height:0; }
+  /* 报警横幅 */
+  .alarm-bar {
+    display:none; align-items:center; gap:12px; margin:10px 16px 0; padding:10px 16px;
+    background:linear-gradient(90deg,#5A1620,#7A1E2A); border-radius:10px;
+    border:1px solid #A03040; animation:blink 1.2s infinite; flex-shrink:0;
+  }
+  .alarm-bar.show { display:flex; }
+  @keyframes blink { 0%,100%{ box-shadow:0 0 0 rgba(255,60,60,0);} 50%{ box-shadow:0 0 22px rgba(255,60,60,.55);} }
+  .alarm-bar .txt { font-size:16px; font-weight:bold; color:#FFD8D8; }
+  .alarm-bar .txt small { display:block; font-size:12px; font-weight:normal; color:#F0A8A8; margin-top:2px; }
+  .alarm-bar .sp { flex:1; }
+  .btn-cancel {
+    background:#E74C3C; color:#fff; border:none; border-radius:8px;
+    padding:10px 24px; font-size:15px; font-weight:bold; cursor:pointer;
+  }
+  .btn-cancel:active { transform:scale(.96); }
+
+  .main { flex:1; display:flex; gap:14px; padding:12px 16px 8px; min-height:0; }
+  .hr-block {
+    width:320px; flex-shrink:0; display:flex; flex-direction:column;
+    justify-content:center; align-items:center; gap:2px; position:relative;
+  }
+  /* 状态信息: 数字左上角小字(数据源/RSSI) */
+  .src-corner { position:absolute; left:0; top:0; text-align:left; line-height:1.6; z-index:2; }
+  .src-corner .src-line { font-size:13px; margin-top:0; }
+  .src-corner .sub-line { text-align:left; margin-top:2px; font-size:11px; }
+  /* 字号超宽自动切纵向: 数字在上, 心形在下 */
+  .hr-row { display:flex; align-items:center; gap:14px; }
+  .hr-block.stacked .hr-row { flex-direction:column; gap:4px; }
+  .hr-block.stacked #txtHr { order:0; line-height:1; }
+  .hr-block.stacked .bpm { order:1; font-size:18px; padding-bottom:0; align-self:center; }
+  .hr-block.stacked #heartIcon { order:2; }
+  #heartIcon { font-size:52px; color:#FF5A5A; }
+  #txtHr { font-size:150px; font-weight:bold; color:#2ECC71; line-height:1;
+    font-variant-numeric:tabular-nums; }
+  .bpm { font-size:32px; font-weight:bold; color:#2ECC71; align-self:flex-end; padding-bottom:20px; }
+  .src-line { font-size:16px; color:#B8B8CC; margin-top:10px; }
+  .src-line b { color:#7EC8FF; }
+  .sub-line { font-size:12px; color:#6A6A80; margin-top:5px; text-align:center; }
+  /* 首页小块视频口: 当前绑定房间摄像头, 2fps 快照轮询, 未绑定→默认相机 */
+  .mini-cam {
+    margin-top:12px; width:248px; height:140px; position:relative;
+    border-radius:10px; overflow:hidden; border:1px solid #26262F;
+    background:#000; cursor:pointer; flex-shrink:0;
+  }
+  .mini-cam:hover { border-color:#4A7AB0; }
+  .mini-cam img { width:100%; height:100%; object-fit:cover; filter:saturate(.85) contrast(1.05); }
+  .mini-cam .tag {
+    position:absolute; left:6px; top:6px; font-size:10px; color:#E0E0EA;
+    background:rgba(0,0,0,.6); padding:2px 8px; border-radius:6px;
+    display:flex; gap:5px; align-items:center;
+  }
+  .mini-cam .fps {
+    position:absolute; right:6px; bottom:6px; font-size:10px; color:#9A9AB0;
+    background:rgba(0,0,0,.6); padding:1px 6px; border-radius:6px;
+    font-variant-numeric:tabular-nums;
+  }
+  .live { width:7px; height:7px; border-radius:50%; background:#FF3B3B; animation:blink 1s infinite; flex-shrink:0; }
+
+  .wave-wrap { flex:1; min-width:0; display:flex; flex-direction:column; }
+  .wave-head { display:flex; justify-content:space-between; font-size:12px;
+    color:#66667E; padding:0 4px 6px; }
+  #waveCanvas { flex:1; width:100%; min-height:0; background:#101016;
+    border-radius:10px; border:1px solid #22222C; }
+  .wave-wrap.hide { display:none; }
+
+  #camArea { display:none; flex:1; min-width:0; flex-direction:column; }
+  #camArea.show { display:flex; }
+  .cam-tabs { display:flex; gap:8px; padding-bottom:6px; }
+  .cam-tab {
+    font-size:12px; color:#9A9AB0; background:#1C1C26; border:1px solid #2A2A38;
+    padding:4px 16px; border-radius:14px; cursor:pointer;
+  }
+  .cam-tab.on { background:#2E4A6E; color:#FFF; border-color:#4A7AB0; }
+  .cam-view {
+    position:relative; flex:1; min-height:0; border-radius:10px; overflow:hidden;
+    border:2px solid #E74C3C; background:#000;
+  }
+  .cam-view img { width:100%; height:100%; object-fit:cover; filter:saturate(.85) contrast(1.05); }
+  .cam-ov {
+    position:absolute; left:10px; top:10px; font-size:12px; color:#fff; background:rgba(0,0,0,.55);
+    padding:3px 10px; border-radius:6px; display:flex; gap:8px; align-items:center;
+  }
+  .cam-ov .live { width:8px; height:8px; border-radius:50%; background:#FF3B3B; animation:blink 1s infinite; }
+  .cam-ov-r { position:absolute; right:10px; top:10px; font-size:11px; color:#FF9090;
+    background:rgba(0,0,0,.55); padding:3px 8px; border-radius:6px; }
+  .cam-gen {
+    position:absolute; left:50%; bottom:10px; transform:translateX(-50%);
+    font-size:12px; color:#FFD0D0; background:rgba(0,0,0,.55); padding:3px 12px; border-radius:12px;
+  }
+
+  .cards { flex-shrink:0; display:flex; gap:8px; padding:8px 16px 14px; }
+  .card {
+    background:#1B1B24; border:1px solid #26262F; border-radius:10px;
+    padding:8px 12px; flex:1; min-width:0;
+  }
+  .card .k { font-size:11px; color:#77778C; margin-bottom:3px; white-space:nowrap; }
+  .card .v { font-size:13px; color:#E0E0EA; white-space:nowrap; display:flex; align-items:center; gap:6px; }
+  .card.link { cursor:pointer; transition:.15s; }
+  .card.link:hover { border-color:#4A7AB0; background:#1E2430; }
+  .dot { width:8px; height:8px; border-radius:50%; background:#2ECC71; flex-shrink:0; }
+  .dot.warn { background:#F39C12; }
+  .dot.err  { background:#E74C3C; }
+  .dot.off  { background:#55556A; }
+
+  /* ================= 摄像头监控墙页 ================= */
+  #pageCams { flex:1; display:none; min-height:0; flex-direction:column; padding:12px 16px; gap:10px; }
+  .cam-head { display:flex; align-items:center; gap:12px; flex-shrink:0; }
+  .cam-head .ttl { font-size:15px; font-weight:bold; color:#E8E8F0; }
+  .cam-head .unit { font-size:11px; color:#66667E; }
+  .cam-head .sp { flex:1; }
+  .cam-grid {
+    flex:1; min-height:0; display:grid; gap:10px;
+    grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr;
+  }
+  #pageCams.single .cam-grid { grid-template-columns:1fr; grid-template-rows:1fr; }
+  .cam-cell {
+    position:relative; border-radius:10px; overflow:hidden; border:1px solid #26262F;
+    background:#000; cursor:pointer;
+  }
+  .cam-cell:hover { border-color:#4A7AB0; }
+  #pageCams.single .cam-cell { display:none; }
+  #pageCams.single .cam-cell.sel { display:block; border-color:#4A7AB0; }
+  .cam-cell img { width:100%; height:100%; object-fit:cover; filter:saturate(.85) contrast(1.05); }
+  .cam-meta {
+    position:absolute; left:0; right:0; bottom:0; padding:16px 10px 6px;
+    background:linear-gradient(transparent, rgba(0,0,0,.75));
+    font-size:11px; color:#BBBBC8; display:flex; gap:12px;
+  }
+
+  /* ================= 记录页(推送记录+报警剪辑回放) ================= */
+  #pageRecords { flex:1; display:none; min-height:0; flex-direction:column; padding:12px 16px; gap:10px; }
+  .rec-replay {
+    flex:1.1; min-height:0; position:relative; border-radius:10px; overflow:hidden;
+    border:1px solid #26262F; background:#000;
+  }
+  .rec-replay img { width:100%; height:100%; object-fit:cover; filter:saturate(.85); }
+  .rec-replay .ph {
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    color:#55556A; font-size:14px;
+  }
+  .rec-clips { display:flex; gap:10px; flex-shrink:0; }
+  .clip-card {
+    width:172px; border-radius:8px; overflow:hidden; border:1px solid #26262F;
+    background:#1B1B24; cursor:pointer; flex-shrink:0;
+  }
+  .clip-card:hover, .clip-card.sel { border-color:#4A7AB0; }
+  .clip-card img { width:100%; height:88px; object-fit:cover; display:block; }
+  .clip-card .ci { padding:5px 8px; font-size:11px; color:#BBBBC8; line-height:1.5; }
+  .clip-card .ci b { color:#E0E0EA; font-size:12px; }
+  .rec-scroll { flex:1; min-height:0; overflow-y:auto; }
+  .rec-scroll::-webkit-scrollbar { width:8px; }
+  .rec-scroll::-webkit-scrollbar-thumb { background:#2A2A38; border-radius:4px; }
+  /* 报警画面上的回看入口 */
+  .btn-replay {
+    position:absolute; right:10px; bottom:10px; background:rgba(46,90,150,.9);
+    color:#fff; border:1px solid #5A8AC0; border-radius:8px;
+    padding:7px 16px; font-size:13px; cursor:pointer;
+  }
+  .btn-replay:hover { background:rgba(58,110,180,.95); }
+  .replay-ov {
+    position:absolute; inset:0; background:rgba(0,0,0,.55); display:none;
+    align-items:center; justify-content:center; font-size:17px; color:#fff; gap:12px;
+  }
+  .def-tag { font-size:10px; color:#7EC8FF; border:1px solid #2E4A6E; border-radius:4px; padding:0 4px; margin-left:4px; }
+
+  /* ================= 设置页 ================= */
+  #pageSettings { flex:1; display:none; min-height:0; padding:12px 16px; gap:14px; }
+  .set-nav { width:186px; flex-shrink:0; display:flex; flex-direction:column; gap:6px; }
+  .nav-item {
+    padding:11px 14px; border-radius:8px; background:#1B1B24; border:1px solid #26262F;
+    color:#A0A0B8; font-size:13px; cursor:pointer;
+  }
+  .nav-item.on { background:#2E4A6E; color:#fff; border-color:#4A7AB0; }
+  .set-body {
+    flex:1; min-width:0; overflow-y:auto; background:#181820;
+    border:1px solid #22222C; border-radius:10px; padding:14px 20px 16px;
+  }
+  .set-body::-webkit-scrollbar { width:8px; }
+  .set-body::-webkit-scrollbar-thumb { background:#2A2A38; border-radius:4px; }
+  .group { display:none; }
+  .group.on { display:block; }
+  .group h3 { font-size:15px; color:#E8E8F0; margin-bottom:2px; }
+  .group .desc { font-size:11px; color:#66667E; margin-bottom:10px; }
+  .frow { display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px dashed #22222C; }
+  .frow:last-of-type { border-bottom:none; }
+  .frow label { width:150px; font-size:13px; color:#A0A0B8; flex-shrink:0; text-align:right; }
+  .frow input[type=text], .frow input[type=password], .frow input[type=number], .frow select {
+    background:#101016; border:1px solid #2A2A38; border-radius:6px; color:#E0E0EA;
+    padding:6px 10px; font-size:13px; width:240px; outline:none;
+  }
+  .frow input:focus, .frow select:focus { border-color:#4A7AB0; }
+  .frow .unit { font-size:11px; color:#66667E; }
+  .btn-mini {
+    background:#22222E; border:1px solid #343444; color:#CCC; border-radius:6px;
+    padding:5px 14px; font-size:12px; cursor:pointer; flex-shrink:0;
+  }
+  .btn-mini:disabled { opacity:.5; cursor:wait; }
+  .btn-mini.primary { background:#2E4A6E; border-color:#4A7AB0; color:#fff; }
+  /* 开关 */
+  .tg { width:36px; height:20px; border-radius:10px; background:#33334A; position:relative;
+    cursor:pointer; flex-shrink:0; transition:.15s; }
+  .tg.on { background:#2ECC71; }
+  .tg::after { content:''; position:absolute; width:16px; height:16px; border-radius:50%;
+    background:#fff; top:2px; left:2px; transition:.15s; }
+  .tg.on::after { left:18px; }
+  /* ESP32 节点表(对齐 EXE QTableWidget 7列) */
+  .node-table { width:100%; border-collapse:collapse; font-size:12px; margin:6px 0 8px; }
+  .node-table th { text-align:left; color:#77778C; font-weight:normal; padding:6px 8px;
+    border-bottom:1px solid #2A2A38; white-space:nowrap; }
+  .node-table td { padding:7px 8px; border-bottom:1px solid #1F1F28; color:#D0D0DC; white-space:nowrap; }
+  .node-table tbody tr { cursor:pointer; }
+  .node-table tbody tr:hover { background:#20202A; }
+  .node-table tbody tr.sel { background:#243048; outline:1px solid #3A5A86; }
+  .st-active { color:#7ED87E; font-weight:bold; }
+  .st-off { color:#66667E; }
+  .st-warn { color:#F39C12; }
+  .set-body select { background:#101016; border:1px solid #2A2A38; border-radius:6px; color:#E0E0EA;
+    padding:5px 8px; font-size:12px; outline:none; }
+  .radio-row { display:flex; align-items:baseline; gap:8px; padding:5px 0; font-size:13px; color:#C8C8D8; }
+  .radio-row input { accent-color:#4A7AB0; align-self:center; }
+  .radio-row .sub { color:#66667E; font-size:11px; }
+  /* 表格内输入框/勾选(时段规则等) */
+  .node-table td input[type=text], .node-table td input[type=number] {
+    background:#101016; border:1px solid #2A2A38; border-radius:5px; color:#E0E0EA;
+    padding:4px 6px; font-size:12px; width:70px; outline:none;
+  }
+  .node-table td input[type=checkbox] { accent-color:#2ECC71; width:14px; height:14px; }
+  .example-box {
+    font-size:11px; color:#8A8AA0; background:#101016; border:1px solid #22222C;
+    border-radius:8px; padding:8px 12px; margin:4px 0 2px; line-height:1.9;
+  }
+  /* 设备/节点/摄像头列表行 */
+  .list-row {
+    display:flex; align-items:center; gap:10px; padding:8px 12px; margin:4px 0;
+    background:#1B1B24; border:1px solid #26262F; border-radius:8px; font-size:13px;
+  }
+  .list-row .name { color:#E0E0EA; font-weight:bold; }
+  .list-row .meta { color:#77778C; font-size:12px; flex:1; }
+  .save-row {
+    display:flex; align-items:center; gap:12px; margin-top:14px; padding-top:12px;
+    border-top:1px solid #26262F;
+  }
+  .btn-save {
+    background:#2E7D4F; color:#fff; border:none; border-radius:8px;
+    padding:9px 28px; font-size:14px; font-weight:bold; cursor:pointer;
+  }
+  .save-row span { font-size:11px; color:#66667E; }
+</style>
+</head>
+<body>
+
+<!-- 预览控制条 -->
+<div class="ctrl">
+  <span class="lbl">页面</span>
+  <button id="pDash" class="on" onclick="showPage('dash')">仪表盘</button>
+  <button id="pCams" onclick="showPage('cams')">摄像头墙</button>
+  <button id="pRec" onclick="showPage('records')">记录页</button>
+  <button id="pSet" onclick="showPage('settings')">设置页</button>
+  <span class="lbl" style="margin-left:14px">状态模拟</span>
+  <button id="bNormal" class="on mode-btn" onclick="setMode('normal')">正常（书房）</button>
+  <button id="bSwitch" class="mode-btn" onclick="setMode('switch')">切换中</button>
+  <button id="bLost" class="mode-btn" onclick="setMode('lost')">失联</button>
+  <button id="bAlarm" class="mode-btn" onclick="setMode('alarm')">报警中</button>
+</div>
+
+<!-- 设备画面 -->
+<div id="device">
+
+  <!-- 顶栏 -->
+  <div class="topbar">
+    <span class="app">HRHub服务端</span><span class="ver">v1.0.4</span>
+    <span class="chip">常亮</span><span class="chip" style="background:#1E2438;color:#8FB4E8;border-color:#2E3A58">数字大屏</span>
+    <span class="sp"></span>
+    <button class="btn" id="btnRecords" onclick="showPage('records')">记录</button>
+    <button class="btn" id="btnPage" onclick="togglePage()">设置</button>
+  </div>
+
+  <!-- ============ 仪表盘页 ============ -->
+  <div id="pageDash">
+    <!-- 报警横幅 -->
+    <div class="alarm-bar" id="alarmBar">
+      <span style="font-size:24px">⚠</span>
+      <div class="txt">心率过高报警 · 145 BPM<small id="alarmSub">触发于 23:41:02 · 已推送 Bark / MeoW / ntfy · 剪辑生成中…</small></div>
+      <span class="sp"></span>
+      <button class="btn-cancel" onclick="cancelAlarm()">取消本次报警</button>
+    </div>
+
+    <div class="main">
+      <div class="hr-block">
+        <!-- 状态信息: 心率数字左上角小字(数据源/RSSI), 可在设置页隐藏 -->
+        <div class="src-corner" id="srcRow">
+          <div class="src-line">数据源: <b id="srcName">书房</b> · <span id="srcState">已连接</span></div>
+          <div class="sub-line" id="subLine">中继 RSSI -72 · 服务 100.89.227.102:8765</div>
+        </div>
+        <div class="hr-row">
+          <span id="heartIcon">♥</span>
+          <span id="txtHr">72</span>
+          <span class="bpm">BPM</span>
+        </div>
+        <!-- 小块视频口: 手环当前绑定房间 → 摄像头(room_camera_map), 未绑定→默认相机, 2fps 快照 -->
+        <div class="mini-cam" id="miniCam" onclick="showPage('cams')" title="点击打开摄像头墙">
+          <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=CCTV%20security%20camera%20overhead%20wide%20angle%20view%20of%20a%20home%20living%20room%20at%20night%2C%20sofa%20and%20TV%20cabinet%2C%20warm%20dim%20lighting%2C%20slightly%20grainy%20surveillance%20footage%2C%20realistic&image_size=landscape_16_9" alt="mini-cam">
+          <div class="tag"><span class="live"></span><span id="miniCamTag">书房 · 客厅相机</span></div>
+          <div class="fps" id="miniCamFps">2fps · 23:41:07</div>
+        </div>
+      </div>
+
+      <!-- 波形: 对齐 EXE HeartRateWaveform(Y轴自动缩放+区间背景+平均线, X轴 -60秒→现在) -->
+      <div class="wave-wrap" id="waveWrap">
+        <div class="wave-head"><span>实时心率监测 · 近 60 秒</span><span id="wsInfo">WS 客户端 2</span></div>
+        <canvas id="waveCanvas"></canvas>
+      </div>
+
+      <!-- 报警时替换为报警房间摄像头 -->
+      <div id="camArea">
+        <div class="cam-tabs" id="camTabs">
+          <span class="cam-tab on" onclick="selCam(this,'客厅')">客厅</span>
+          <span class="cam-tab" onclick="selCam(this,'主卧')">主卧</span>
+          <span class="cam-tab" onclick="selCam(this,'书房')">书房</span>
+        </div>
+        <div class="cam-view">
+          <img id="camImg" src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=CCTV%20security%20camera%20overhead%20wide%20angle%20view%20of%20a%20home%20living%20room%20at%20night%2C%20sofa%20and%20TV%20cabinet%2C%20warm%20dim%20lighting%2C%20slightly%20grainy%20surveillance%20footage%2C%20realistic&image_size=landscape_16_9" alt="cam">
+          <div class="cam-ov"><span class="live"></span><span id="camName">客厅</span> · LIVE</div>
+          <div class="cam-ov-r">2026-09-29 23:41:15</div>
+          <div class="cam-gen" id="camGen">报警剪辑生成中 · 稍候可回看</div>
+          <div class="replay-ov" id="replayOv">▶ 回放中 · 书房 · 23:41:02 · 14s<button class="btn-mini" onclick="toggleReplay()">退出</button></div>
+          <button class="btn-replay" id="btnReplay" onclick="toggleReplay()">▶ 回看报警视频</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="cards">
+      <div class="card" id="card1"><div class="k">手环</div><div class="v"><span class="dot" id="d1"></span><span id="v1">已连接</span></div></div>
+      <div class="card" id="card2"><div class="k">WS 客户端</div><div class="v"><span class="dot" id="d2"></span><span id="v2">2 在线</span></div></div>
+      <div class="card" id="card3"><div class="k">Tailscale</div><div class="v"><span class="dot" id="d3"></span><span id="v3">100.89.x.x</span></div></div>
+      <div class="card" id="card4"><div class="k">MQTT</div><div class="v"><span class="dot" id="d4"></span><span id="v4">已连接</span></div></div>
+      <div class="card" id="card5"><div class="k">InfluxDB</div><div class="v"><span class="dot" id="d5"></span><span id="v5">写入正常</span></div></div>
+      <div class="card link" id="card6" onclick="showPage('cams')"><div class="k">摄像头 ›</div><div class="v"><span class="dot" id="d6"></span><span id="v6">3/4 拉流中</span></div></div>
+      <div class="card" id="card7"><div class="k">中继节点</div><div class="v"><span class="dot" id="d7"></span><span id="v7">4/5 在线</span></div></div>
+    </div>
+  </div>
+
+  <!-- ============ 摄像头监控墙页 ============ -->
+  <div id="pageCams">
+    <div class="cam-head">
+      <span class="ttl">摄像头监控墙</span>
+      <span class="unit">4 路子码流 · 拉流中 4/4 · 点击画面放大 / 还原</span>
+      <span class="sp"></span>
+      <button class="btn-mini" id="btnBackGrid" style="display:none" onclick="exitSingle()">← 返回宫格</button>
+    </div>
+    <div class="cam-grid">
+      <div class="cam-cell" onclick="toggleSingle(this)">
+        <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=CCTV%20security%20camera%20overhead%20wide%20angle%20view%20of%20a%20home%20living%20room%20at%20night%2C%20sofa%20and%20TV%20cabinet%2C%20warm%20dim%20lighting%2C%20slightly%20grainy%20surveillance%20footage%2C%20realistic&image_size=landscape_16_9" alt="客厅">
+        <div class="cam-ov"><span class="live"></span>客厅 · LIVE</div>
+        <div class="cam-meta"><span>rtsp://192.168.1.20/sub</span><span>25fps</span><span>1.2Mbps</span><span>报警联动 ✓</span></div>
+      </div>
+      <div class="cam-cell" onclick="toggleSingle(this)">
+        <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=CCTV%20security%20camera%20view%20of%20a%20bedroom%20at%20night%2C%20bed%20and%20wardrobe%2C%20very%20dim%20blue%20night%20lighting%2C%20grainy%20surveillance%20footage%2C%20realistic&image_size=landscape_16_9" alt="主卧">
+        <div class="cam-ov"><span class="live"></span>主卧 · LIVE</div>
+        <div class="cam-meta"><span>rtsp://192.168.1.21/sub</span><span>25fps</span><span>1.1Mbps</span><span>报警联动 ✓</span></div>
+      </div>
+      <div class="cam-cell" onclick="toggleSingle(this)">
+        <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=CCTV%20security%20camera%20view%20of%20a%20home%20study%20room%20at%20night%2C%20desk%20and%20bookshelf%2C%20dim%20lighting%2C%20grainy%20surveillance%20footage%2C%20realistic&image_size=landscape_16_9" alt="书房">
+        <div class="cam-ov"><span class="live"></span>书房 · LIVE</div>
+        <div class="cam-meta"><span>rtsp://192.168.1.22/sub</span><span>25fps</span><span>1.0Mbps</span><span>联动关</span></div>
+      </div>
+      <div class="cam-cell" onclick="toggleSingle(this)">
+        <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=CCTV%20security%20camera%20view%20of%20a%20home%20dining%20room%20at%20night%2C%20dining%20table%20and%20chairs%2C%20dim%20warm%20lighting%2C%20grainy%20surveillance%20footage%2C%20realistic&image_size=landscape_16_9" alt="餐厅">
+        <div class="cam-ov"><span class="live"></span>餐厅 · LIVE</div>
+        <div class="cam-meta"><span>rtsp://192.168.1.23/sub</span><span>25fps</span><span>1.1Mbps</span><span>联动关</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 记录页(推送记录+报警剪辑) ============ -->
+  <div id="pageRecords">
+    <div class="cam-head">
+      <span class="ttl">记录</span>
+      <span class="unit">报警剪辑回放 + 推送记录 · 剪辑存档于 U 盘/板载(按清理策略)</span>
+      <span class="sp"></span>
+      <button class="btn-mini">清理策略</button>
+    </div>
+    <div class="rec-replay">
+      <img id="recImg" src="" alt="" style="display:none">
+      <div class="ph" id="recPh">点击下方剪辑卡片回放（MediaPlayer + TextureView，最近 14 秒剪辑）</div>
+      <div class="cam-ov" id="recOv" style="display:none"><span class="live"></span><span id="recTitle">回放</span></div>
+      <div class="cam-ov-r" id="recTime"></div>
+    </div>
+    <div class="rec-clips">
+      <div class="clip-card sel" onclick="playClip(this,'书房','客厅',1)">
+        <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=CCTV%20security%20camera%20overhead%20wide%20angle%20view%20of%20a%20home%20living%20room%20at%20night%2C%20sofa%20and%20TV%20cabinet%2C%20warm%20dim%20lighting%2C%20slightly%20grainy%20surveillance%20footage%2C%20realistic&image_size=landscape_16_9" alt="">
+        <div class="ci"><b>书房 · 客厅相机</b><br>23:41:02 · 14s · 心率过高 145</div>
+      </div>
+      <div class="clip-card" onclick="playClip(this,'主卧','主卧相机',2)">
+        <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=CCTV%20security%20camera%20view%20of%20a%20bedroom%20at%20night%2C%20bed%20and%20wardrobe%2C%20very%20dim%20blue%20night%20lighting%2C%20grainy%20surveillance%20footage%2C%20realistic&image_size=landscape_16_9" alt="">
+        <div class="ci"><b>主卧 · 主卧相机</b><br>昨日 22:10:33 · 14s · 心率过高 152</div>
+      </div>
+      <div class="clip-card" onclick="playClip(this,'餐厅','餐厅相机',3)">
+        <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=CCTV%20security%20camera%20view%20of%20a%20home%20dining%20room%20at%20night%2C%20dining%20table%20and%20chairs%2C%20dim%20warm%20lighting%2C%20grainy%20surveillance%20footage%2C%20realistic&image_size=landscape_16_9" alt="">
+        <div class="ci"><b>餐厅 · 餐厅相机</b><br>09-27 21:05:11 · 14s · 疑似心律不齐</div>
+      </div>
+      <div class="clip-card" onclick="playClip(this,'书房','客厅相机',4)">
+        <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=CCTV%20security%20camera%20view%20of%20a%20home%20study%20room%20at%20night%2C%20desk%20and%20bookshelf%2C%20dim%20lighting%2C%20grainy%20surveillance%20footage%2C%20realistic&image_size=landscape_16_9" alt="">
+        <div class="ci"><b>书房 · 客厅相机</b><br>09-27 06:12:40 · 14s · 心率过低 42</div>
+      </div>
+    </div>
+    <div class="cam-head"><span class="ttl" style="font-size:13px">推送记录</span><span class="unit">时间 / 类别 / 数值 / 渠道 / 结果 / 视频标记</span><span class="sp"></span><button class="btn-mini">导出 CSV</button></div>
+    <div class="rec-scroll">
+      <table class="node-table">
+        <thead><tr><th>时间</th><th>类别</th><th>数值</th><th>渠道</th><th>结果</th><th>视频</th></tr></thead>
+        <tbody>
+          <tr><td>09-29 23:41:02</td><td>心率过高</td><td>145 BPM</td><td>Bark+MeoW+ntfy</td><td style="color:#7ED87E">全部成功</td><td>书房/客厅 ✓</td></tr>
+          <tr><td>09-29 23:41:02</td><td>本地报警</td><td>—</td><td>板载扬声器</td><td style="color:#7ED87E">循环中(10s)</td><td>—</td></tr>
+          <tr><td>09-28 22:10:33</td><td>心率过高</td><td>152 BPM</td><td>Bark+MeoW</td><td style="color:#7ED87E">成功 / ntfy超时重试1次</td><td>主卧 ✓</td></tr>
+          <tr><td>09-28 08:02:19</td><td>设备断开</td><td>—</td><td>Bark</td><td style="color:#7ED87E">成功</td><td>—</td></tr>
+          <tr><td>09-27 21:05:11</td><td>疑似心律不齐</td><td>SD 9.2</td><td>Bark+ntfy</td><td style="color:#7ED87E">成功</td><td>餐厅 ✓</td></tr>
+          <tr><td>09-27 06:12:40</td><td>心率过低</td><td>42 BPM</td><td>Bark+MeoW+ntfy</td><td style="color:#E74C3C">Bark 失败(401)</td><td>书房 ✓</td></tr>
+          <tr><td>09-26 23:30:07</td><td>设备重连</td><td>—</td><td>Bark</td><td style="color:#7ED87E">成功</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ============ 设置页 ============ -->
+  <div id="pageSettings">
+    <div class="set-nav">
+      <div class="nav-item" onclick="selGroup(this,'device')">设备管理</div>
+      <div class="nav-item" onclick="selGroup(this,'service')">数据服务</div>
+      <div class="nav-item" onclick="selGroup(this,'alarm')">告警规则</div>
+      <div class="nav-item on" onclick="selGroup(this,'push')">推送渠道</div>
+      <div class="nav-item" onclick="selGroup(this,'cam')">摄像头</div>
+      <div class="nav-item" onclick="selGroup(this,'relay')">ESP32 中继</div>
+      <div class="nav-item" onclick="selGroup(this,'storage')">存储</div>
+      <div class="nav-item" onclick="selGroup(this,'ts')">Tailscale</div>
+      <div class="nav-item" onclick="selGroup(this,'screen')">大屏显示</div>
+      <div class="nav-item" onclick="selGroup(this,'misc')">通用</div>
+    </div>
+
+    <div class="set-body">
+      <!-- 设备管理 -->
+      <div class="group" id="g-device">
+        <h3>设备管理</h3>
+        <div class="desc">BLE 手环扫描 / 选用 / 收藏，对齐 EXE DevCtrl</div>
+        <div class="frow"><label>当前设备</label><span style="color:#E0E0EA">小米手环8</span><span class="unit">C8:5C:xx:xx:xx:A1</span><button class="btn-mini">断开</button></div>
+        <div class="frow"><label>自动连接</label><span class="tg on"></span><span class="unit">启动后自动连接收藏/上次设备</span></div>
+        <div class="frow"><label>扫描</label><button class="btn-mini primary">扫描附近设备</button><span class="unit">发现 2 台</span></div>
+        <div class="list-row"><span class="name">小米手环8</span><span class="meta">C8:5C:xx · RSSI -58</span><button class="btn-mini">选用</button><button class="btn-mini">收藏</button></div>
+        <div class="list-row"><span class="name">Band 7</span><span class="meta">E0:AF:xx · RSSI -71</span><button class="btn-mini">选用</button><button class="btn-mini">收藏</button></div>
+        <div class="frow" style="margin-top:8px"><label>收藏设备</label></div>
+        <div class="list-row"><span class="name">书房手环</span><span class="meta">C8:5C:xx · 上次 23:20</span><button class="btn-mini">连接</button><button class="btn-mini">取消收藏</button></div>
+      </div>
+
+      <!-- 数据服务 -->
+      <div class="group" id="g-service">
+        <h3>数据服务</h3>
+        <div class="desc">/api/heartrate + /ws 下游分发，对齐 EXE [Server]</div>
+        <div class="frow"><label>数据服务启用</label><span class="tg on"></span></div>
+        <div class="frow"><label>绑定地址</label><select><option>auto（Tailscale 优先，推荐）</option><option>0.0.0.0</option><option>100.89.227.102</option></select></div>
+        <div class="frow"><label>端口</label><input type="number" value="8765"></div>
+        <div class="frow"><label>运行状态</label><span class="unit" style="color:#7ED87E">运行中 · 2 个 WS 客户端 · 已服务 3.2 天</span></div>
+      </div>
+
+      <!-- 告警规则(对齐 EXE PushSettingUI 消息推送页: 默认规则/报警声音/疑似心律不齐/自定义时段规则) -->
+      <div class="group" id="g-alarm">
+        <h3>告警规则</h3>
+        <div class="desc">消息推送触发规则 + 报警声音，对齐 EXE [Push] 消息推送页</div>
+
+        <div style="font-size:13px;color:#A0A0B8;margin:6px 0 2px">默认规则 (无时段规则命中时生效)</div>
+        <div class="frow"><label>心率上限告警</label><input type="number" value="150" style="width:90px"><span class="unit">次/分 (0=不检测)</span>
+          <label style="width:110px">心率下限告警</label><input type="number" value="45" style="width:90px"><span class="unit">次/分</span></div>
+        <div class="frow"><label>超限持续判定</label><input type="number" value="10" style="width:90px"><span class="unit">秒</span>
+          <label style="width:110px">告警冷却</label><input type="number" value="5" style="width:90px"><span class="unit">分钟 (0=不冷却, 各类别独立计时)</span></div>
+        <div class="example-box">触发方式示例 (以上限80/下限40/持续50秒为例)<br>
+          ① 触发: 心率≥81 或 ≤39, 且连续50秒每秒都超限 → 第50秒推送<br>
+          ② 清零: 中途哪怕回落一秒(如 85→75), 计时清零重新计满; 骤降到35则按过低重新计时<br>
+          ③ 不触发: 心率始终在40~80之间(含40和80); 超限49秒就恢复也不推送<br>
+          ④ 冷却: 推送后冷却期内该类别不再推; 冷却结束时仍超限则自动再推, 恢复后重新计50秒</div>
+
+        <div style="font-size:13px;color:#A0A0B8;margin:12px 0 2px">报警声音 (心率过高/过低/疑似心律不齐触发, 音效: 报警.mp3)</div>
+        <div class="frow"><label>本地报警</label><span class="tg on"></span><span class="unit">板子扬声器循环播放报警音, 直至报警结束/取消</span></div>
+        <div class="frow"><label>远程报警</label><span class="tg on"></span><span class="unit">接收端 APP 同步响铃 (trigger_alarm 广播)</span></div>
+
+        <div style="font-size:13px;color:#A0A0B8;margin:12px 0 2px">疑似心律不齐提示 (实验性, 非医学诊断)</div>
+        <div class="frow"><label>启用检测</label><span class="tg on"></span></div>
+        <div class="frow"><label>　检测窗口</label><input type="number" value="10"><span class="unit">秒</span><label style="width:90px">标准差</label><input type="number" value="8.5" style="width:80px"></div>
+        <div class="frow"><label>　跳变幅度</label><input type="number" value="30"><span class="unit">BPM</span><label style="width:90px">跳变占比</label><input type="number" value="0.4" style="width:80px"></div>
+        <div class="frow"><label>　静息上限</label><input type="number" value="100"><span class="unit">BPM</span><label style="width:90px">持续次数</label><input type="number" value="3" style="width:80px"></div>
+        <div class="frow"><label>　冷却</label><input type="number" value="600"><span class="unit">秒</span></div>
+
+        <div style="font-size:13px;color:#A0A0B8;margin:12px 0 2px">自定义时段规则 (时段内使用独立参数, 支持跨零点; 可添加多条)</div>
+        <table class="node-table">
+          <thead><tr><th>启用</th><th>开始</th><th>结束</th><th>上限(0=不限)</th><th>下限(0=不限)</th><th>持续(秒)</th><th>冷却(分)</th></tr></thead>
+          <tbody id="periodBody">
+            <tr class="sel" onclick="selPeriod(this)">
+              <td><input type="checkbox" checked></td><td><input type="text" value="23:00"></td><td><input type="text" value="06:30"></td>
+              <td><input type="number" value="0"></td><td><input type="number" value="45"></td><td><input type="number" value="10"></td><td><input type="number" value="5"></td>
+            </tr>
+            <tr onclick="selPeriod(this)">
+              <td><input type="checkbox"></td><td><input type="text" value="06:30"></td><td><input type="text" value="08:30"></td>
+              <td><input type="number" value="120"></td><td><input type="number" value="0"></td><td><input type="number" value="10"></td><td><input type="number" value="30"></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="frow" style="border-bottom:none">
+          <button class="btn-mini" onclick="addPeriod()">添加规则</button>
+          <button class="btn-mini" onclick="delPeriod()">删除选中行</button>
+          <button class="btn-mini primary" onclick="triggerTest()">触发测试报警</button>
+          <span class="unit">多条命中按顺序取第一条; 各规则×过高/过低冷却独立不共用</span>
+        </div>
+      </div>
+
+      <!-- 推送渠道 -->
+      <div class="group on" id="g-push">
+        <h3>推送渠道</h3>
+        <div class="desc">MeoW / Bark / ntfy 并行推送，InfluxDB / MQTT 分发，对齐 EXE [Push] 全表</div>
+        <div class="frow"><label>MeoW</label><span class="tg on"></span><input type="text" placeholder="昵称" value="家里的HR"><button class="btn-mini">测试</button></div>
+        <div class="frow"><label>Bark</label><span class="tg on"></span><input type="password" value="********" style="width:150px" placeholder="DeviceKey"><input type="text" placeholder="自建服务器(可选)" style="width:170px"><button class="btn-mini">测试</button></div>
+        <div class="frow"><label>　Bark 级别</label><select style="width:140px"><option>active（默认亮屏）</option><option>timeSensitive</option><option>passive</option><option>critical（静音仍响）</option></select><input type="text" placeholder="声音" value="alarm" style="width:100px"><input type="text" placeholder="分组" value="HRMLink" style="width:100px"></div>
+        <div class="frow"><label>ntfy</label><span class="tg on"></span><input type="text" value="hrmlink-alert-xxxx" placeholder="主题" style="width:170px"><select style="width:110px"><option>default</option><option>high</option><option>urgent</option></select><button class="btn-mini">测试</button></div>
+        <div class="frow"><label>　ntfy 服务器</label><input type="text" value="https://ntfy.sh" style="width:240px"><input type="password" placeholder="Token(可选)" value="********" style="width:150px"></div>
+        <div class="frow"><label>InfluxDB</label><span class="tg on"></span><input type="text" value="http://192.168.1.10:8086" style="width:200px"><button class="btn-mini">测试</button></div>
+        <div class="frow"><label>　Token / Org / Bucket</label><input type="password" value="********" style="width:120px"><input type="text" value="home" style="width:70px"><input type="text" value="heartrate" style="width:110px"></div>
+        <div class="frow"><label>MQTT</label><input type="text" value="tcp://192.168.1.10:1883" style="width:200px"><input type="text" value="hrmlink" placeholder="用户" style="width:90px"><input type="password" value="********" placeholder="密码" style="width:100px"></div>
+        <div class="frow"><label>　HA discovery</label><span class="tg on"></span><span class="unit">homeassistant/sensor/hrmlink/...</span></div>
+      </div>
+
+      <!-- 摄像头 -->
+      <div class="group" id="g-cam">
+        <h3>摄像头</h3>
+        <div class="desc">RTSP 子码流拉流 / 报警剪辑 / HLS，对齐 EXE [Camera]；ONVIF 自动发现</div>
+        <div class="frow"><label>摄像头联动</label><span class="tg on"></span></div>
+        <div class="frow"><label>报警房间绑定</label><span class="unit">书房 → 客厅相机 · 主卧 → 主卧相机 · 直连(本机BLE) → 默认相机</span></div>
+        <div class="list-row"><span class="name">客厅<span class="def-tag">默认</span></span><span class="meta">rtsp://192.168.1.20:554/sub · 子码流 · ONVIF · 拉流中</span><span class="tg on"></span><button class="btn-mini">编辑</button></div>
+        <div class="list-row"><span class="name">主卧</span><span class="meta">rtsp://192.168.1.21:554/sub · 子码流 · 拉流中</span><span class="tg on"></span><button class="btn-mini">编辑</button></div>
+        <div class="list-row"><span class="name">书房</span><span class="meta">rtsp://192.168.1.22:554/sub · 未启用</span><span class="tg"></span><button class="btn-mini">编辑</button></div>
+        <div class="frow"><label>添加摄像头</label><button class="btn-mini primary">ONVIF 搜索</button><button class="btn-mini">手动填写 RTSP</button></div>
+        <div class="frow"><label>高清剪辑</label><span class="tg"></span><span class="unit">录像缓冲切主码流(剪辑 2K 级) · 多路时限 1-2 路, 否则 eMMC 写入压力大</span></div>
+        <div class="frow"><label>默认码流</label><select style="width:150px"><option selected>子码流 (推荐)</option><option>主码流</option></select><span class="unit">常态拉流/快照/HLS 全走子码流, 对齐 EXE stream_manager</span></div>
+        <div class="frow"><label>侦测方式</label><select style="width:190px"><option>移动侦测 · 帧差 (MediaCodec 1fps)</option><option>ONVIF 事件 (摄像头侧侦测)</option><option disabled>NPU 人形检测 (待真机实测)</option></select>
+          <label style="width:80px">灵敏度</label><select style="width:100px"><option>低</option><option selected>中</option><option>高</option></select></div>
+        <div class="frow"><label>NPU 状态</label><span class="dot off" id="npuDot"></span><span class="unit" id="npuStatus">未启用 · RK3566 内置 1 TOPS，设备到手实测 RKNPU2 驱动后开启 (YOLOv8n-INT8 ≈30ms/帧, 仅"检测到人"才触发剪辑推送, 大幅降低误报)</span></div>
+      </div>
+
+      <!-- ESP32 中继(对齐 EXE RelaySettingUI) -->
+      <div class="group" id="g-relay">
+        <h3>ESP32 中继</h3>
+        <div class="desc">全屋心率中继 · RelayHub :8899 + mDNS 自动发现，对齐 EXE ESP32 页</div>
+
+        <div style="font-size:13px;color:#A0A0B8;margin:6px 0 2px">运行模式</div>
+        <label class="radio-row"><input type="radio" name="relayMode" onchange="modeChanged()">单机模式 <span class="sub">— 板子直接连接手环 (扫描/自动重连/收藏全开，开箱即用)</span></label>
+        <label class="radio-row"><input type="radio" name="relayMode" checked onchange="modeChanged()">中继模式·仅中枢 <span class="sub">— 板子+ESP32组网，节点负责连接 (全部节点失聪约8秒后板子才兜底)</span></label>
+        <label class="radio-row"><input type="radio" name="relayMode" onchange="modeChanged()">中继模式·板载节点 <span class="sub">— 板载蓝牙作为虚拟节点平等参与仲裁</span></label>
+        <div class="frow"><label>板载节点房间名</label><input type="text" value="书房" style="width:140px" disabled><span class="unit">仅"板载节点"模式可填</span></div>
+        <div class="frow"><label>服务地址</label><span class="unit" id="relayEndpoint" style="color:#7ED87E">ws://192.168.1.5:8899/relay (运行中) · 节点经 mDNS 自动发现</span></div>
+
+        <div style="font-size:13px;color:#A0A0B8;margin:10px 0 2px">漫游仲裁参数</div>
+        <div class="frow"><label>切换阈值</label><input type="number" value="-75" style="width:90px"><span class="unit">dBm</span>
+          <label style="width:50px">迟滞</label><input type="number" value="10" style="width:70px"><span class="unit">dB</span>
+          <label style="width:110px">连续判定周期</label><input type="number" value="3" style="width:60px"><span class="unit">个</span></div>
+        <div class="frow"><label>最低可连RSSI</label><input type="number" value="-80" style="width:90px"><span class="unit">dBm — 低于此值不申请连接、不作切换候选(保存并重启生效)</span></div>
+        <div class="frow"><label>通信 token</label><input type="password" value="********" style="width:200px"><span class="unit">节点 /relay 接入鉴权(安卓端配置项)</span></div>
+
+        <div style="font-size:13px;color:#A0A0B8;margin:10px 0 2px">节点列表</div>
+        <table class="node-table">
+          <thead><tr><th>节点名</th><th>IP</th><th>固件</th><th>状态</th><th>手环RSSI</th><th>偏差dB</th><th>最后活跃(秒前)</th></tr></thead>
+          <tbody id="nodeBody">
+            <tr class="sel" onclick="selNode(this)"><td>书房</td><td>192.168.1.31</td><td>1.1.9n</td><td class="st-active">● 持有手环</td><td>-72 dBm</td><td>+2 dB</td><td>0</td></tr>
+            <tr onclick="selNode(this)"><td>主卧</td><td>192.168.1.32</td><td>1.1.9n</td><td>待命(空闲)</td><td>—</td><td>-3 dB</td><td>2</td></tr>
+            <tr onclick="selNode(this)"><td>餐厅</td><td>192.168.1.33</td><td>1.1.9n</td><td>待命(空闲)</td><td>-81 dBm</td><td>+5 dB</td><td>1</td></tr>
+            <tr onclick="selNode(this)"><td>次卧</td><td>192.168.1.34</td><td>1.1.8n</td><td class="st-off">离线</td><td>—</td><td>—</td><td>125</td></tr>
+          </tbody>
+        </table>
+        <div class="frow" style="border-bottom:none">
+          <button class="btn-save" style="padding:7px 20px;font-size:13px">保存并应用</button>
+          <button class="btn-mini" onclick="refreshNodes(this)">刷新节点</button>
+          <button class="btn-mini" onclick="renameNode()">重命名节点</button>
+          <button class="btn-mini" onclick="rebootNode()">重启节点</button>
+          <button class="btn-mini" onclick="delNode()" style="color:#F08080;border-color:#5A3038">删除节点</button>
+          <span class="unit">删除 = 移除登记记录（节点重新上电接入会再次出现）</span>
+        </div>
+
+        <div style="font-size:13px;color:#A0A0B8;margin:10px 0 2px">信号标定 (个体偏差均衡)</div>
+        <div class="desc" style="margin-bottom:4px">不同 ESP32 存在 3~8dB 个体射频偏差会导致仲裁误判；全部节点并排同位放置、手环 2 米内，点开始约需 30 秒（期间暂时断开手环，完成后自动恢复）。选路用校准值、掉线判定仍用原始值（双轨）。</div>
+        <div class="frow" style="border-bottom:none">
+          <button class="btn-mini primary" id="btnCalib" onclick="startCalib()">开始标定</button>
+          <button class="btn-mini" onclick="clearBiases()">清除偏差</button>
+          <span class="unit" id="calibStatus">当前偏差: 书房 +2dB; 主卧 -3dB; 餐厅 +5dB</span>
+        </div>
+
+        <div style="font-size:13px;color:#A0A0B8;margin:10px 0 2px">报警视频联动</div>
+        <div class="desc" style="margin-bottom:4px">心率报警时按"当前持有手环的节点"定位房间，接收端报警面板自动切换该房间绑定摄像头画面；板载直连 = PC 行。未绑定/无效绑定显示默认摄像头。</div>
+        <table class="node-table" style="max-width:560px">
+          <thead><tr><th>房间(数据源)</th><th>摄像头</th></tr></thead>
+          <tbody id="bindBody">
+            <tr class="sel" onclick="selBind(this)"><td><select><option>PC</option><option selected>书房</option><option>主卧</option><option>餐厅</option><option>次卧</option></select></td><td><select><option>未绑定</option><option selected>客厅</option><option>主卧</option><option>书房</option><option>餐厅</option></select></td></tr>
+            <tr onclick="selBind(this)"><td><select><option>PC</option><option>书房</option><option selected>主卧</option><option>餐厅</option><option>次卧</option></select></td><td><select><option>未绑定</option><option>客厅</option><option selected>主卧</option><option>书房</option><option>餐厅</option></select></td></tr>
+          </tbody>
+        </table>
+        <div class="frow" style="border-bottom:none">
+          <button class="btn-mini" onclick="addBinding()">添加绑定</button>
+          <button class="btn-mini" onclick="delBinding()">删除选中绑定</button>
+        </div>
+      </div>
+
+      <!-- 存储(§4.3.1 U盘冷数据: 剪辑/心率CSV/推送记录) -->
+      <div class="group" id="g-storage">
+        <h3>存储</h3>
+        <div class="desc">冷数据存档（§4.3.1）：报警剪辑 / 心率 CSV / 推送记录，U 盘优先</div>
+        <div class="frow"><label>存档位置</label><select id="storageRoot" style="width:200px" onchange="storageChanged()"><option selected>auto · U 盘优先 (推荐)</option><option>强制 U 盘</option><option>仅板载存储</option></select><span class="unit">U 盘未插入时自动回退板载并告警日志</span></div>
+        <div class="frow"><label>U 盘状态</label><span class="dot" id="usbDot"></span><span class="unit" id="usbStatus">已挂载 /storage/1A2B-3C4D · exFAT · 118GB (已用 12.4GB)</span></div>
+        <div class="frow"><label>固定在板载</label><span class="unit">HLS 环形缓冲(2s 分片高频覆写, U 盘掉电会挂实时链路) · APK/配置/Tailscale/InfluxDB</span></div>
+        <div style="font-size:13px;color:#A0A0B8;margin:10px 0 2px">存档内容 (勾选启用, 每项单独选存放位置)</div>
+        <div class="list-row"><span class="name">报警剪辑</span><select style="width:100px"><option selected>U 盘</option><option>板载</option></select><span class="meta">建议 U 盘 · 大文件冷数据, 拔盘即可电脑查看, 走清理策略</span><span class="tg on"></span></div>
+        <div class="list-row"><span class="name">心率 CSV 日志</span><select style="width:100px"><option selected>U 盘</option><option>板载</option></select><span class="meta">建议 U 盘 · 逐拍自动保存, 按日文件滚动, 减少板载写入</span><span class="tg on"></span></div>
+        <div class="list-row"><span class="name">推送记录</span><select style="width:100px"><option selected>U 盘</option><option>板载</option></select><span class="meta">建议 U 盘 · 时间/类别/渠道/结果, 拔盘归档</span><span class="tg on"></span></div>
+        <div class="frow"><label></label><span class="unit">选"U 盘"但未挂载时该项自动回退板载; 更改仅对新文件生效, 旧文件不迁移</span></div>
+        <div class="frow" style="margin-top:8px"><label>剪辑清理策略</label><select style="width:180px"><option>按容量 30GB（推荐）</option><option>按时间 90 天</option></select><span class="unit">当前已用 12.4GB</span></div>
+        <div class="frow"><label>CSV 日志保留</label><select style="width:180px"><option>90 天滚动</option><option>180 天</option><option>永久</option></select></div>
+      </div>
+
+      <!-- Tailscale -->
+      <div class="group" id="g-ts">
+        <h3>Tailscale</h3>
+        <div class="desc">板子开箱即得 100.x 虚拟 IP，接收端远程免配置</div>
+        <div class="frow"><label>状态</label><span style="color:#7ED87E">已登录</span><span class="unit">100.89.227.102 · hrmlink-gm800</span></div>
+        <div class="frow"><label>登录方式</label><select style="width:160px"><option>auth key（推荐，无人值守）</option><option>交互式登录</option></select></div>
+        <div class="frow"><label>Auth Key</label><input type="password" value="********" style="width:240px"></div>
+        <div class="frow"><label>操作</label><button class="btn-mini">重新登录</button><button class="btn-mini">下线</button></div>
+      </div>
+
+      <!-- 大屏显示(首页元素显隐/字号, 即改即存) -->
+      <div class="group" id="g-screen">
+        <h3>大屏显示</h3>
+        <div class="desc">首页大屏各元素显隐与字号，勾选即生效（数字大屏常显场景）</div>
+
+        <div style="font-size:13px;color:#A0A0B8;margin:6px 0 2px">底部状态卡片 (勾选显示 / 取消隐藏)</div>
+        <div class="frow"><label>手环</label><span class="tg on" data-card="1"></span><span class="unit">手环连接状态</span></div>
+        <div class="frow"><label>WS 客户端</label><span class="tg on" data-card="2"></span><span class="unit">下游接收端在线数</span></div>
+        <div class="frow"><label>Tailscale</label><span class="tg on" data-card="3"></span><span class="unit">100.x 虚拟 IP</span></div>
+        <div class="frow"><label>MQTT</label><span class="tg on" data-card="4"></span><span class="unit">Broker 连接状态</span></div>
+        <div class="frow"><label>InfluxDB</label><span class="tg on" data-card="5"></span><span class="unit">写入状态</span></div>
+        <div class="frow"><label>摄像头</label><span class="tg on" data-card="6"></span><span class="unit">点击进监控墙</span></div>
+        <div class="frow"><label>中继节点</label><span class="tg on" data-card="7"></span><span class="unit">ESP32 在线数/总数</span></div>
+
+        <div style="font-size:13px;color:#A0A0B8;margin:12px 0 2px">心率数字</div>
+        <div class="frow"><label>数字字号</label><input type="range" id="hrSize" min="100" max="200" value="150" style="width:240px;accent-color:#4A7AB0"><span class="unit" id="hrSizeVal">150sp</span></div>
+        <div class="frow"><label>心形图标</label><span class="tg on" data-el="heartIcon"></span><span class="unit">随数据脉冲</span></div>
+
+        <div style="font-size:13px;color:#A0A0B8;margin:12px 0 2px">其他元素</div>
+        <div class="frow"><label>小块视频口</label><span class="tg on" data-el="miniCam"></span><span class="unit">心率数字下方当前房间摄像头 (2fps)</span></div>
+        <div class="frow"><label>数据源行</label><span class="tg on" data-el="srcRow"></span><span class="unit">书房 · 已连接 / RSSI 行</span></div>
+      </div>
+
+      <!-- 通用 -->
+      <div class="group" id="g-misc">
+        <h3>通用</h3>
+        <div class="desc">大屏 / 自启 / 更新，对齐 EXE 通用项</div>
+        <div class="frow"><label>屏幕常亮</label><span class="tg on"></span><span class="unit">FLAG_KEEP_SCREEN_ON（数字大屏）</span></div>
+        <div class="frow"><label>夜间自动降亮度</label><span class="tg"></span></div>
+        <div class="frow"><label>开机自启</label><span style="color:#7ED87E">已启用</span><span class="unit">BOOT_COMPLETED → 前台服务</span></div>
+        <div class="frow"><label>电池优化白名单</label><span style="color:#7ED87E">已忽略优化</span><button class="btn-mini">去系统设置</button></div>
+        <div class="frow"><label>推送记录</label><button class="btn-mini">查看</button><span class="unit">时间 / 渠道 / 结果 / 视频标记</span></div>
+        <div class="frow"><label>检查更新</label><button class="btn-mini">检查</button><span class="unit">当前 v1.0.4 · 已是最新</span></div>
+      </div>
+
+      <div class="save-row">
+        <button class="btn-save">保存全部</button>
+        <span>修改由监测服务重启时生效（对齐现有行为）· 敏感字段仅存本机不参与同步</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="hint">
+8 寸屏 1280×800 横屏主形态 ｜ 波形对齐 EXE：Y 轴自动缩放(40-200)+四区间背景+平均虚线+当前值框，X 轴 -60秒 → 现在每 10 秒刻度<br>
+仪表盘"摄像头"卡片 → 4 宫格监控墙（点击放大单路）｜ 首页心率数字下方小块视频口 = 当前绑定房间摄像头(未绑定→默认相机, 2fps 快照轮询, 点击进墙, 报警时隐藏)｜ 数字行超宽自动切纵向(数字上/心形下), 状态信息(数据源/RSSI)显示在数字左上角<br>
+报警画面右下"▶ 回看报警视频"原位回放(✕退出, 对齐接收端)｜ 记录页 = 剪辑卡片回放 + 推送记录表(导出CSV)｜ 告警规则"触发测试报警"按钮(复用 trigger_alarm 全链路)｜ 摄像头组含高清剪辑/码流选择/默认相机标记/NPU 人形检测(预留)
+</div>
+
+<script>
+/* ================= 页面切换 ================= */
+var curPage = 'dash';
+var PAGE_BTN = { dash:'pDash', cams:'pCams', records:'pRec', settings:'pSet' };
+var PAGE_ID  = { dash:'pageDash', cams:'pageCams', records:'pageRecords', settings:'pageSettings' };
+function showPage(p){
+  curPage = p;
+  Object.keys(PAGE_ID).forEach(function(n){
+    document.getElementById(PAGE_ID[n]).style.display = (n===p) ? 'flex' : 'none';
+  });
+  Object.keys(PAGE_BTN).forEach(function(n){
+    document.getElementById(PAGE_BTN[n]).className = (n===p) ? 'on' : '';
+  });
+  document.getElementById('btnPage').textContent = p==='dash' ? '设置' : '返回';
+  document.getElementById('btnRecords').style.display = p==='dash' ? '' : 'none';
+  document.querySelectorAll('.mode-btn').forEach(function(b){ b.disabled = (p!=='dash'); });
+  if (p==='dash'){ setTimeout(resizeCanvas, 50); setTimeout(checkOverflow, 60); }
+}
+function togglePage(){ showPage(curPage==='dash' ? 'settings' : 'dash'); }
+
+/* ================= 摄像头墙: 宫格 ↔ 单路放大 ================= */
+function toggleSingle(el){
+  var pg = document.getElementById('pageCams');
+  var wasSel = el.classList.contains('sel');
+  document.querySelectorAll('.cam-cell').forEach(function(c){ c.classList.remove('sel'); });
+  if (wasSel) exitSingle();
+  else {
+    el.classList.add('sel');
+    pg.classList.add('single');
+    document.getElementById('btnBackGrid').style.display = '';
+  }
+}
+function exitSingle(){
+  document.querySelectorAll('.cam-cell').forEach(function(c){ c.classList.remove('sel'); });
+  document.getElementById('pageCams').classList.remove('single');
+  document.getElementById('btnBackGrid').style.display = 'none';
+}
+
+/* ================= 设置分组切换 ================= */
+function selGroup(el, name){
+  document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('on'); });
+  el.classList.add('on');
+  document.querySelectorAll('.group').forEach(function(g){ g.classList.remove('on'); });
+  document.getElementById('g-'+name).classList.add('on');
+}
+
+/* ================= ESP32 节点表(对齐 EXE RelaySettingUI: 选中行+按钮操作) ================= */
+function selNode(tr){
+  document.querySelectorAll('#nodeBody tr').forEach(function(r){ r.classList.remove('sel'); });
+  tr.classList.add('sel');
+}
+function selBind(tr){
+  document.querySelectorAll('#bindBody tr').forEach(function(r){ r.classList.remove('sel'); });
+  tr.classList.add('sel');
+}
+function modeChanged(){
+  var m = document.querySelector('input[name=relayMode]:checked').parentElement.textContent;
+  var ep = document.getElementById('relayEndpoint');
+  var pcName = document.getElementById('g-relay').querySelector('input[type=text]');
+  if (m.indexOf('单机') >= 0){
+    ep.textContent = '未启动 (切回中继模式并保存后拉起)'; ep.style.color = '#8A8AA0';
+    pcName.disabled = true;
+  } else {
+    ep.textContent = 'ws://192.168.1.5:8899/relay (运行中) · 节点经 mDNS 自动发现';
+    ep.style.color = '#7ED87E';
+    pcName.disabled = (m.indexOf('板载节点') < 0);
+  }
+}
+function renameNode(){
+  var tr = document.querySelector('#nodeBody tr.sel');
+  if (!tr){ alert('请先在列表中选中一个节点'); return; }        // 对齐 EXE 提示
+  var nameEl = tr.cells[0];
+  var n = prompt('将 [' + nameEl.textContent + '] 改名为:', nameEl.textContent);
+  if (n && n.trim()) nameEl.textContent = n.trim();             // 走中枢 set{name}+apply, 不断连接
+}
+function rebootNode(){
+  var tr = document.querySelector('#nodeBody tr.sel');
+  if (!tr){ alert('请先在列表中选中一个节点'); return; }
+  var name = tr.cells[0].textContent;
+  if (!confirm('确定重启节点 [' + name + '] ?\n\n若它正持有手环, 重启期间心率会短暂中断, 中枢会自动切换到其他节点。')) return;
+  var st = tr.cells[3];
+  st.className = 'st-warn'; st.textContent = '重启中(reboot)…';
+  setTimeout(function(){
+    st.className = ''; st.textContent = '待命(空闲)';
+    tr.cells[6].textContent = '0';
+    tr.cells[4].textContent = '-' + (58+Math.round(Math.random()*24)) + ' dBm';
+  }, 2000);
+}
+function delNode(){
+  var tr = document.querySelector('#nodeBody tr.sel');
+  if (!tr){ alert('请先在列表中选中一个节点'); return; }
+  var name = tr.cells[0].textContent;
+  if (!confirm('确定从列表删除节点 [' + name + '] ?\n\n仅移除登记记录, 节点重新上电接入后会再次出现。')) return;
+  tr.remove();
+}
+function refreshNodes(btn){
+  btn.disabled = true; btn.textContent = '刷新中…';
+  setTimeout(function(){
+    document.querySelectorAll('#nodeBody tr').forEach(function(tr){
+      if (tr.cells[4].textContent !== '—')
+        tr.cells[4].textContent = '-' + (58+Math.round(Math.random()*28)) + ' dBm';
+    });
+    btn.disabled = false; btn.textContent = '刷新节点';
+  }, 700);
+}
+/* 信号标定 */
+function startCalib(){
+  var btn = document.getElementById('btnCalib'), st = document.getElementById('calibStatus');
+  btn.disabled = true; st.textContent = '标定中 | 采样 书房:8次 主卧:5次 …';
+  setTimeout(function(){
+    btn.disabled = false;
+    // 偏差结果回填节点表"偏差dB"列(对齐 EXE: 标定无独立列表, 结果在节点表)
+    var res = { '书房':'+2', '主卧':'-3', '餐厅':'+5' };
+    document.querySelectorAll('#nodeBody tr').forEach(function(tr){
+      var n = tr.cells[0].textContent;
+      tr.cells[5].textContent = res[n] ? res[n]+' dB' : '—';
+    });
+    st.textContent = '标定完成 | 基准 -68dBm | 书房 +2dB; 主卧 -3dB; 餐厅 +5dB';
+  }, 3000);
+}
+function clearBiases(){
+  document.getElementById('calibStatus').textContent = '当前偏差: 无';
+  document.querySelectorAll('#nodeBody tr').forEach(function(tr){ tr.cells[5].textContent = '—'; });
+}
+/* 报警视频联动绑定行 */
+function addBinding(){
+  var body = document.getElementById('bindBody');
+  var tr = document.createElement('tr');
+  tr.onclick = function(){ selBind(tr); };
+  tr.innerHTML = '<td><select><option>PC</option><option>书房</option><option>主卧</option><option>餐厅</option><option>次卧</option></select></td>'
+               + '<td><select><option>未绑定</option><option>客厅</option><option>主卧</option><option>书房</option><option>餐厅</option></select></td>';
+  body.appendChild(tr);
+  selBind(tr);
+}
+function delBinding(){
+  var tr = document.querySelector('#bindBody tr.sel');
+  if (tr) tr.remove();
+}
+/* 自定义时段规则行(对齐 EXE periods_table) */
+function selPeriod(tr){
+  document.querySelectorAll('#periodBody tr').forEach(function(r){ r.classList.remove('sel'); });
+  tr.classList.add('sel');
+}
+function addPeriod(){
+  var body = document.getElementById('periodBody');
+  var tr = document.createElement('tr');
+  tr.onclick = function(){ selPeriod(tr); };
+  tr.innerHTML = '<td><input type="checkbox" checked></td><td><input type="text" value="00:00"></td><td><input type="text" value="00:00"></td>'
+               + '<td><input type="number" value="0"></td><td><input type="number" value="0"></td>'
+               + '<td><input type="number" value="10"></td><td><input type="number" value="5"></td>';
+  body.appendChild(tr);
+  selPeriod(tr);
+}
+function delPeriod(){
+  var tr = document.querySelector('#periodBody tr.sel');
+  if (tr) tr.remove();
+}
+/* 报警回看(对齐接收端 replayDismissed 设计: 原位回放, ✕退出) */
+function toggleReplay(){
+  var btn = document.getElementById('btnReplay'), ov = document.getElementById('replayOv');
+  var gen = document.getElementById('camGen');
+  var exiting = btn.textContent.indexOf('退出') >= 0;
+  btn.textContent = exiting ? '▶ 回看报警视频' : '✕ 退出回看';
+  ov.style.display = exiting ? 'none' : 'flex';
+  gen.style.display = exiting ? '' : 'none';
+}
+function resetReplay(){
+  document.getElementById('btnReplay').textContent = '▶ 回看报警视频';
+  document.getElementById('replayOv').style.display = 'none';
+  document.getElementById('camGen').style.display = '';
+}
+/* 记录页: 剪辑回放 */
+function playClip(card, room, cam, n){
+  document.querySelectorAll('.clip-card').forEach(function(c){ c.classList.remove('sel'); });
+  card.classList.add('sel');
+  document.getElementById('recImg').src = card.querySelector('img').src;
+  document.getElementById('recImg').style.display = '';
+  document.getElementById('recPh').style.display = 'none';
+  document.getElementById('recOv').style.display = '';
+  document.getElementById('recTitle').textContent = '回放 · ' + room + ' · ' + cam;
+  document.getElementById('recTime').textContent = '剪辑 ' + n + ' / 14s';
+}
+/* 测试报警: 复用 trigger_alarm 生命周期(全渠道推送+响铃+剪辑联动) */
+function triggerTest(){
+  showPage('dash');
+  setMode('alarm');
+}
+/* 存档位置切换(§4.3.1: U盘冷数据, getExternalFilesDirs 探测, 未插入回退板载) */
+function storageChanged(){
+  var v = document.getElementById('storageRoot').value;
+  var dot = document.getElementById('usbDot'), st = document.getElementById('usbStatus');
+  if (v.indexOf('仅板载') >= 0){
+    dot.className = 'dot off';
+    st.textContent = '未使用 U 盘 · 全部存档写板载 eMMC';
+  } else {
+    dot.className = 'dot';
+    st.textContent = '已挂载 /storage/1A2B-3C4D · exFAT · 118GB (已用 12.4GB) · 剪辑/推送记录/CSV日志 写入此盘';
+  }
+}
+
+/* 开关点击切换 */
+document.querySelectorAll('.tg').forEach(function(t){
+  t.addEventListener('click', function(){ t.classList.toggle('on'); });
+});
+/* 大屏显示联动: 卡片/元素显隐 + 字号 (对齐设置页即时预览) */
+document.querySelectorAll('.tg[data-card]').forEach(function(t){
+  t.addEventListener('click', function(){
+    var c = document.getElementById('card' + t.getAttribute('data-card'));
+    if (c) c.style.display = t.classList.contains('on') ? '' : 'none';
+  });
+});
+document.querySelectorAll('.tg[data-el]').forEach(function(t){
+  t.addEventListener('click', function(){
+    var e = document.getElementById(t.getAttribute('data-el'));
+    if (e) e.style.display = t.classList.contains('on') ? '' : 'none';
+  });
+});
+document.getElementById('hrSize').addEventListener('input', function(){
+  document.getElementById('txtHr').style.fontSize = this.value + 'px';
+  document.getElementById('hrSizeVal').textContent = this.value + 'sp';
+  checkOverflow();
+});
+/* 数字行超宽检测: 超出左列宽度时切纵向(数字在上/心形在下), 真机=onMeasure 宽度对比 */
+function checkOverflow(){
+  var row = document.querySelector('.hr-row');
+  var block = document.querySelector('.hr-block');
+  if (!row || !block) return;
+  block.classList.toggle('stacked', row.scrollWidth > block.clientWidth - 4);
+}
+window.addEventListener('resize', checkOverflow);
+
+/* ================= 状态机：normal / switch / lost / alarm ================= */
+var mode = 'normal';
+var COLORS = { normal:'#2ECC71', switch:'#F39C12', lost:'#9E9E9E', alarm:'#E74C3C' };
+
+function setMode(m){
+  mode = m;
+  ['bNormal','bSwitch','bLost','bAlarm'].forEach(function(id){
+    document.getElementById(id).className = ('b'+id.slice(1))===id ? 'on mode-btn' : 'mode-btn';
+  });
+  applyMode();
+}
+function cancelAlarm(){ setMode('normal'); }
+
+function applyMode(){
+  var alarm = (mode==='alarm');
+  document.getElementById('alarmBar').classList.toggle('show', alarm);
+  document.getElementById('camArea').classList.toggle('show', alarm);
+  document.getElementById('waveWrap').classList.toggle('hide', alarm);
+
+  // 小块视频口: 报警时主画面已是该房间摄像头→隐藏; 失联无当前房间→回退默认相机
+  var mini = document.getElementById('miniCam');
+  var tag = document.getElementById('miniCamTag');
+  if (alarm) mini.style.display = 'none';
+  else {
+    mini.style.display = '';
+    tag.textContent = mode==='lost' ? '手环未连接 · 默认相机' : '书房 · 客厅相机';
+    resetReplay(); // 报警结束/取消: 回看态复位, 按钮随下一轮报警重新出现
+  }
+
+  var hr = mode==='alarm' ? 145 : (mode==='lost' ? 0 : 72);
+  var color = COLORS[mode];
+  var hrEl = document.getElementById('txtHr');
+  hrEl.textContent = hr>0 ? hr : '--';
+  hrEl.style.color = color;
+  document.querySelector('.bpm').style.color = color;
+  document.getElementById('heartIcon').style.color = mode==='lost' ? '#666' : color;
+
+  var srcS = document.getElementById('srcState');
+  var sub = document.getElementById('subLine');
+  if (mode==='switch'){
+    document.getElementById('srcName').textContent = '书房 → 主卧';
+    srcS.textContent = '切换中'; srcS.style.color = '#F39C12';
+    sub.textContent = '正在切换数据源 · 恢复后自动刷新';
+  } else if (mode==='lost'){
+    document.getElementById('srcName').textContent = '--';
+    srcS.textContent = '失联'; srcS.style.color = '#E74C3C';
+    sub.textContent = '手环搜索不到 · 可能外出或关机';
+  } else {
+    document.getElementById('srcName').textContent = '书房';
+    srcS.textContent = '已连接'; srcS.style.color = '#7ED87E';
+    sub.textContent = '中继 RSSI -' + (mode==='alarm' ? '68' : '72') + ' · 服务 100.89.227.102:8765';
+  }
+
+  var vals, dots;
+  if (mode==='lost'){
+    vals = ['搜索不到','2 在线','100.89.x.x','已连接','写入正常','3/4 拉流中'];
+    dots = ['off','ok','ok','ok','ok','ok'];
+  } else if (mode==='switch'){
+    vals = ['切换中','2 在线','100.89.x.x','已连接','写入正常','3/4 拉流中'];
+    dots = ['warn','ok','ok','ok','ok','ok'];
+  } else {
+    vals = ['已连接','2 在线','100.89.x.x','已连接','写入正常','3/4 拉流中'];
+    dots = ['ok','ok','ok','ok','ok','ok'];
+  }
+  for (var i=0;i<6;i++){
+    document.getElementById('v'+(i+1)).textContent = vals[i];
+    document.getElementById('d'+(i+1)).className = 'dot' + (dots[i]==='warn'?' warn':dots[i]==='err'?' err':dots[i]==='off'?' off':'');
+  }
+  if (!alarm){ buf.length = 0; prefill(); }
+}
+
+/* 报警摄像头 tab 切换 */
+var CAM_URL = {
+  '客厅':'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=CCTV%20security%20camera%20overhead%20wide%20angle%20view%20of%20a%20home%20living%20room%20at%20night%2C%20sofa%20and%20TV%20cabinet%2C%20warm%20dim%20lighting%2C%20slightly%20grainy%20surveillance%20footage%2C%20realistic&image_size=landscape_16_9',
+  '主卧':'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=CCTV%20security%20camera%20view%20of%20a%20bedroom%20at%20night%2C%20bed%20and%20wardrobe%2C%20very%20dim%20blue%20night%20lighting%2C%20grainy%20surveillance%20footage%2C%20realistic&image_size=landscape_16_9',
+  '书房':'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=CCTV%20security%20camera%20view%20of%20a%20home%20study%20room%20at%20night%2C%20desk%20and%20bookshelf%2C%20dim%20lighting%2C%20grainy%20surveillance%20footage%2C%20realistic&image_size=landscape_16_9'
+};
+function selCam(el, name){
+  document.querySelectorAll('.cam-tab').forEach(function(t){ t.classList.remove('on'); });
+  el.classList.add('on');
+  document.getElementById('camName').textContent = name;
+  document.getElementById('camImg').src = CAM_URL[name];
+}
+
+/* ================= 波形（对齐 EXE HeartRateWaveform） =================
+   Y轴: 动态缩放 40-200 + 四区间背景 + 平均虚线 + 当前值框
+   X轴: -60秒 → 现在, 每 10 秒刻度; 1Hz 采样, 60 点窗口 */
+var WIN = 60;
+var buf = [];
+function prefill(){ buf.length=0; for (var i=0;i<WIN;i++) buf.push(72 + Math.round(Math.sin(i/9)*4)); }
+prefill();
+
+function pushSample(){
+  var v;
+  if (mode==='alarm') v = 138 + Math.round(Math.random()*14);
+  else if (mode==='lost' || mode==='switch') v = 0;   // 断点(NaN)
+  else v = 68 + Math.round(Math.random()*8);
+  buf.push(v); if (buf.length>WIN) buf.shift();
+  if (mode!=='alarm'){
+    document.getElementById('txtHr').textContent = v>0 ? v : '--';
+  }
+}
+
+var canvas = document.getElementById('waveCanvas');
+function resizeCanvas(){
+  var r = canvas.getBoundingClientRect();
+  if (r.width>0){
+    canvas.width = r.width * devicePixelRatio;
+    canvas.height = r.height * devicePixelRatio;
+  }
+}
+window.addEventListener('resize', resizeCanvas);
+
+function draw(){
+  if (canvas.width>0){
+    var g = canvas.getContext('2d'), W = canvas.width, H = canvas.height, dpr = devicePixelRatio;
+    g.clearRect(0,0,W,H);
+    var padL=48*dpr, padR=14*dpr, padT=12*dpr, padB=28*dpr;
+    var pw=W-padL-padR, ph=H-padT-padB;
+
+    // Y 范围动态缩放(EXE 同款: min/max ± 25% 余量, 夹 40-200)
+    var valid=[]; for (var i=0;i<buf.length;i++) if (buf[i]>0) valid.push(buf[i]);
+    var yMin=40, yMax=120, avg=0;
+    if (valid.length){
+      var mn=Infinity, mx=-Infinity, sum=0;
+      for (var j=0;j<valid.length;j++){ if(valid[j]<mn)mn=valid[j]; if(valid[j]>mx)mx=valid[j]; sum+=valid[j]; }
+      var margin = Math.max((mx-mn)*0.25, 15);
+      yMin = Math.max(40, Math.floor(mn-margin));
+      yMax = Math.min(200, Math.ceil(mx+margin));
+      if (yMax-yMin<30) yMax = Math.min(200, yMin+30);
+      avg = sum/valid.length;
+    }
+    function Y(v){ return padT + (1-(v-yMin)/(yMax-yMin))*ph; }
+    function zoneBg(a,b,color){
+      var top = Y(Math.min(b,yMax)), bot = Y(Math.max(a,yMin));
+      if (top<padT) top=padT; if (bot>padT+ph) bot=padT+ph;
+      if (bot>top){ g.fillStyle=color; g.fillRect(padL, top, pw, bot-top); }
+    }
+    // 四区间背景(EXE zone_patches 同款)
+    zoneBg(40,60,'rgba(52,152,219,.09)');
+    zoneBg(60,100,'rgba(46,204,113,.09)');
+    zoneBg(100,120,'rgba(243,156,18,.09)');
+    zoneBg(120,200,'rgba(231,76,60,.09)');
+
+    g.font = (11*dpr)+'px "Segoe UI",sans-serif';
+    // Y 网格 + 刻度
+    var stepY = (yMax-yMin)>90 ? 40 : 20;
+    for (var v=Math.ceil(yMin/stepY)*stepY; v<=yMax; v+=stepY){
+      var y = Y(v);
+      g.strokeStyle='rgba(255,255,255,.06)'; g.setLineDash([3*dpr,5*dpr]); g.lineWidth=1;
+      g.beginPath(); g.moveTo(padL,y); g.lineTo(padL+pw,y); g.stroke(); g.setLineDash([]);
+      g.fillStyle='#8A8AA0'; g.textAlign='right'; g.textBaseline='middle';
+      g.fillText(String(v), padL-7*dpr, y);
+    }
+    // X 网格 + 时间刻度: -60秒...-10秒, 末端"现在"
+    for (var t=0; t<WIN; t+=10){
+      var x = padL + (t/(WIN-1))*pw;
+      if (t>0){
+        g.strokeStyle='rgba(255,255,255,.05)'; g.setLineDash([3*dpr,5*dpr]);
+        g.beginPath(); g.moveTo(x,padT); g.lineTo(x,padT+ph); g.stroke(); g.setLineDash([]);
+      }
+      g.fillStyle='#8A8AA0'; g.textAlign='center'; g.textBaseline='top';
+      g.fillText('-'+(WIN-t)+'秒', x, padT+ph+6*dpr);
+    }
+    g.textAlign='right';
+    g.fillText('现在', padL+pw, padT+ph+6*dpr);
+    // 轴线(左+底, EXE 只留两侧 spines)
+    g.strokeStyle='rgba(255,255,255,.18)'; g.lineWidth=1;
+    g.beginPath(); g.moveTo(padL,padT); g.lineTo(padL,padT+ph); g.lineTo(padL+pw,padT+ph); g.stroke();
+
+    // 折线(0=断点断线, NaN 同款)
+    var col = COLORS[mode];
+    g.lineWidth = 2.2*dpr; g.strokeStyle = col;
+    g.shadowColor = col; g.shadowBlur = 6;
+    g.beginPath();
+    var started = false;
+    for (var k=0;k<buf.length;k++){
+      var vv = buf[k];
+      if (vv<=0){ started=false; continue; }
+      var x2 = padL+(k/(WIN-1))*pw, y2 = Y(vv);
+      if (!started){ g.moveTo(x2,y2); started=true; } else g.lineTo(x2,y2);
+    }
+    g.stroke(); g.shadowBlur = 0;
+
+    if (valid.length){
+      // 平均虚线(EXE avg_line)
+      var ay = Y(avg);
+      g.strokeStyle='rgba(74,122,176,.85)'; g.setLineDash([6*dpr,4*dpr]); g.lineWidth=1.4*dpr;
+      g.beginPath(); g.moveTo(padL,ay); g.lineTo(padL+pw,ay); g.stroke(); g.setLineDash([]);
+      g.fillStyle='#8FB4E8'; g.textAlign='left'; g.textBaseline='top'; g.font=(11*dpr)+'px "Segoe UI",sans-serif';
+      g.fillText('平均: '+Math.round(avg)+' BPM', padL+8*dpr, padT+6*dpr);
+      // 当前值框(EXE current_hr_text, 右上)
+      var cur = valid[valid.length-1];
+      var label = '当前: '+cur+' BPM';
+      g.font = 'bold '+(12*dpr)+'px "Segoe UI",sans-serif';
+      var tw = g.measureText(label).width;
+      g.fillStyle='rgba(20,20,26,.88)'; g.strokeStyle=col; g.lineWidth=1*dpr;
+      g.beginPath();
+      if (g.roundRect) g.roundRect(padL+pw-tw-24*dpr, padT+2*dpr, tw+16*dpr, 22*dpr, 5*dpr); else g.rect(padL+pw-tw-24*dpr, padT+2*dpr, tw+16*dpr, 22*dpr);
+      g.fill(); g.stroke();
+      g.fillStyle = col; g.textAlign='right'; g.textBaseline='middle';
+      g.fillText(label, padL+pw-12*dpr, padT+13*dpr);
+      // 端点白点
+      if (mode!=='lost' && buf[buf.length-1]>0){
+        g.fillStyle='#fff'; g.beginPath();
+        g.arc(padL+pw, Y(buf[buf.length-1]), 3.5*dpr, 0, 7); g.fill();
+      }
+    }
+  }
+  requestAnimationFrame(draw);
+}
+
+/* 心形脉冲 */
+setInterval(function(){
+  if (mode==='lost' || mode==='switch') return;
+  var el = document.getElementById('heartIcon');
+  el.style.transform = 'scale(1.3)'; el.style.transition = 'transform .12s';
+  setTimeout(function(){ el.style.transform = 'scale(1)'; el.style.transition = 'transform .25s'; }, 130);
+}, 850);
+
+setInterval(pushSample, 1000);
+/* 小块视频口 2fps 快照时间戳模拟(真机=ffmpeg 快照线程 500ms/帧换 ImageView) */
+setInterval(function(){
+  var el = document.getElementById('miniCamFps');
+  if (el && document.getElementById('miniCam').style.display !== 'none')
+    el.textContent = '2fps · ' + new Date().toTimeString().slice(0,8);
+}, 500);
+setTimeout(resizeCanvas, 50);
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>

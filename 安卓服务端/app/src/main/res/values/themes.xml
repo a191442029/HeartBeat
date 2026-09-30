@@ -7,4 +7,51 @@
         <item name="android:statusBarColor">@color/bg_dark</item>
         <item name="android:navigationBarColor">@color/bg_dark</item>
     </style>
+
+    <!-- ===== 数字大屏底部状态卡片(activity_main, 对齐 ui_preview.html) ===== -->
+    <style name="DashCard">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:layout_marginRight">6dp</item>
+        <item name="android:orientation">vertical</item>
+        <item name="android:background">@drawable/bg_card</item>
+        <item name="android:paddingLeft">10dp</item>
+        <item name="android:paddingRight">10dp</item>
+        <item name="android:paddingTop">6dp</item>
+        <item name="android:paddingBottom">6dp</item>
+    </style>
+
+    <style name="DashCardK">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textColor">#8888A0</item>
+        <item name="android:textSize">11sp</item>
+    </style>
+
+    <style name="DashCardV">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:orientation">horizontal</item>
+        <item name="android:gravity">center_vertical</item>
+    </style>
+
+    <style name="DashCardDot">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:text">●</item>
+        <item name="android:textColor">#777777</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:includeFontPadding">false</item>
+    </style>
+
+    <style name="DashCardVal">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginLeft">5dp</item>
+        <item name="android:textColor">#E0E0EA</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:singleLine">true</item>
+        <item name="android:ellipsize">end</item>
+    </style>
 </resources>

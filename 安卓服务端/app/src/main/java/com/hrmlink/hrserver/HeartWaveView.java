@@ -5,6 +5,7 @@ import android.graphics.Canvas;
 import android.graphics.DashPathEffect;
 import android.graphics.Paint;
 import android.graphics.Path;
+import android.graphics.RectF;
 import android.util.AttributeSet;
 import android.util.TypedValue;
 import android.view.View;
@@ -38,6 +39,10 @@ public class HeartWaveView extends View {
     private final Paint dotPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint labelPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint dashPaint = new Paint();
+    private final Paint avgPaint = new Paint();
+    private final Paint avgLabelPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint curBoxPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint curTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path path = new Path();
     private final float gutterL, gutterB; // 左/下刻度区(px)
 
@@ -58,6 +63,18 @@ public class HeartWaveView extends View {
         dashPaint.setColor(0x30FFFFFF);
         dashPaint.setStrokeWidth(1f);
         dashPaint.setPathEffect(new DashPathEffect(new float[]{6, 6}, 0));
+        // 平均线: 蓝色虚线 + 左上标注(EXE axhline 同款)
+        avgPaint.setColor(0xFF3498DB);
+        avgPaint.setStrokeWidth(2f);
+        avgPaint.setPathEffect(new DashPathEffect(new float[]{10, 8}, 0));
+        avgLabelPaint.setColor(0xFF74B9E8);
+        avgLabelPaint.setTextSize(TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_SP, 11, getResources().getDisplayMetrics()));
+        // 当前值框: 半透明深底白字(EXE 右上标注同款)
+        curBoxPaint.setColor(0xCC22222E);
+        curTextPaint.setColor(0xFFFFFFFF);
+        curTextPaint.setTextSize(TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_SP, 12, getResources().getDisplayMetrics()));
         bandPaint.setStyle(Paint.Style.FILL);
         dotPaint.setColor(0xFFFF6B6B);
         labelPaint.setColor(0xB3FFFFFF);
@@ -193,6 +210,38 @@ public class HeartWaveView extends View {
         }
         cv.drawPath(path, linePaint);
         if (pen) cv.drawCircle(lastX, lastY, 6f, dotPaint);
+
+        // === 平均线(EXE mean line 同款): 窗口有效点均值, 蓝色虚线 + 左上角标注 ===
+        long sum = 0;
+        int cnt = 0;
+        int cur = 0;
+        for (int i = n - 1; i >= 0; i--) {
+            int hr = arr[i] == null ? 0 : arr[i];
+            if (hr > 0) {
+                sum += hr;
+                cnt++;
+                if (cur == 0) cur = hr;   // 最新有效值
+            }
+        }
+        if (cnt >= 3) {
+            float avg = sum / (float) cnt;
+            if (avg >= yMin && avg <= yMax) {
+                float ay = plotH - (avg - yMin) / range * plotH;
+                cv.drawLine(x0, ay, w, ay, avgPaint);
+                String s = "平均: " + Math.round(avg) + " BPM";
+                cv.drawText(s, x0 + 6f, Math.max(labelPaint.getTextSize(), ay - 6f), avgLabelPaint);
+            }
+        }
+
+        // === 当前值框(EXE 右上"当前: xx"标注): 最新有效心率, 区间色圆角块 + 白字 ===
+        if (cur > 0) {
+            String s = "当前: " + cur + " BPM";
+            float tw = labelPaint.measureText(s);
+            float bh = labelPaint.getTextSize() + 10f;
+            RectF box = new RectF(w - tw - 18f, 4f, w - 4f, 4f + bh);
+            cv.drawRoundRect(box, 8f, 8f, curBoxPaint);
+            cv.drawText(s, box.left + 9f, box.bottom - 7f, curTextPaint);
+        }
     }
 
     /** 画一条心率区间背景带: [loHr,hiHr]∩[yMin,yMax] 可见部分 */

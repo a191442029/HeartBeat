@@ -5,6 +5,7 @@
     android:orientation="vertical"
     android:padding="12dp">
 
+    <!-- 顶栏: 标题 + 刷新/清空/导出 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -15,7 +16,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="@string/group_records"
+            android:text="记录"
             android:textSize="20sp"
             android:textStyle="bold"
             android:textColor="@color/text_primary"/>
@@ -30,18 +31,81 @@
             android:id="@+id/btn_records_clear"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginLeft="8dp"
+            android:layout_marginLeft="6dp"
             android:text="@string/btn_records_clear"/>
+
+        <Button
+            android:id="@+id/btn_export_csv"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="6dp"
+            android:text="导出CSV"/>
     </LinearLayout>
 
+    <!-- 回放区: 点剪辑卡片加载, 左上角标"回放 · xxx" -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="0.9"
+        android:layout_marginTop="8dp"
+        android:background="@drawable/bg_card">
+
+        <VideoView
+            android:id="@+id/video_replay"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_gravity="center"/>
+
+        <TextView
+            android:id="@+id/txt_replay_tag"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="start|top"
+            android:layout_margin="8dp"
+            android:background="@drawable/bg_minicam_tag"
+            android:paddingLeft="8dp"
+            android:paddingRight="8dp"
+            android:paddingTop="3dp"
+            android:paddingBottom="3dp"
+            android:textSize="12sp"
+            android:textColor="#FFFFFF"
+            android:visibility="gone"/>
+
+        <TextView
+            android:id="@+id/txt_replay_hint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:textSize="14sp"
+            android:textColor="#999999"
+            android:text="点击下方剪辑卡片回放报警视频"/>
+    </FrameLayout>
+
+    <!-- 剪辑卡片横排 -->
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:id="@+id/clip_row"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp"/>
+    </HorizontalScrollView>
+
+    <!-- 推送记录表 -->
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
-        android:layout_marginBottom="6dp"
+        android:layout_marginTop="6dp"
+        android:layout_marginBottom="2dp"
         android:textSize="12sp"
         android:textColor="#999999"
-        android:text="内存历史, 重启应用后清空; 最新在最上"/>
+        android:text="推送记录 (内存历史, 重启清空; 最新在最上)"/>
 
     <ListView
         android:id="@+id/list_records"

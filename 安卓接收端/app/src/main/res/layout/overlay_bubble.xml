@@ -51,4 +51,22 @@
         android:text="--:--:--"
         android:textColor="#CCCCCC"
         android:textSize="12sp"/>
+
+    <!-- 远程报警取消按钮: 仅报警期间显示, 点击停止本次响铃 -->
+    <TextView
+        android:id="@+id/btn_cancel_alarm"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:background="@drawable/btn_alarm_cancel_bg"
+        android:gravity="center"
+        android:paddingLeft="12dp"
+        android:paddingRight="12dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:text="@string/btn_alarm_cancel"
+        android:textColor="#FFFFFF"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:visibility="gone"/>
 </LinearLayout>

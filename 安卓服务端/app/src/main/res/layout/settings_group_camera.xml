@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="#1C1E26"
+    android:padding="10dp"
+    android:layout_marginBottom="12dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="摄像头"
+        android:textSize="15sp"
+        android:textStyle="bold"
+        android:textColor="@color/accent"/>
+
+    <CheckBox
+        android:id="@+id/chk_camera_enabled"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="启用摄像头链路(拉流/HLS环形缓冲/报警剪辑)"/>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="相机列表 (JSON):"
+        android:textSize="12sp"
+        android:textColor="#999999"/>
+
+    <EditText
+        android:id="@+id/edit_cameras_json"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:minLines="3"
+        android:gravity="top"
+        android:textSize="12sp"
+        android:typeface="monospace"
+        android:hint='[{"name":"客厅","url":"rtsp://.../stream2","alarm_enabled":true,"is_default":true}]'
+        android:textColor="#FFFFFF"/>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="字段: name 名称 / url 子码流RTSP(留空走ONVIF) / ip·onvif_port·username·password / alarm_enabled 报警联动 / is_default 默认相机(空缺回退)"
+        android:textSize="11sp"
+        android:textColor="#777777"/>
+
+    <CheckBox
+        android:id="@+id/chk_clip_hd"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="高清剪辑(主码流, 多路相机限 1-2 路)"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:layout_width="110dp"
+            android:layout_height="wrap_content"
+            android:text="默认码流:"
+            android:textSize="13sp"
+            android:textColor="#CCCCCC"/>
+
+        <Spinner
+            android:id="@+id/spin_live_stream"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:layout_width="110dp"
+            android:layout_height="wrap_content"
+            android:text="侦测方式:"
+            android:textSize="13sp"
+            android:textColor="#CCCCCC"/>
+
+        <Spinner
+            android:id="@+id/spin_detect_mode"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"/>
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/txt_npu_state"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:textSize="11sp"
+        android:textColor="#777777"
+        android:text="● 未启用 · RK3566 内置 1 TOPS, 设备到手实测 RKNPU2 驱动后开启 (YOLOv8n-INT8 ≈30ms/帧, 仅「检测到人」才触发剪辑推送)"/>
+</LinearLayout>

@@ -17,6 +17,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <!-- 直接申请电池优化白名单(长期通电常驻) -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+    <!-- 开机自启: 完成广播拉起监测服务 -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <!-- 检查更新: 下载release APK后跳系统安装器(Android 8+侧载需声明) -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
 
@@ -42,9 +44,20 @@
 
         <activity android:name=".RecordsActivity" android:exported="false"/>
 
+        <activity android:name=".CameraWallActivity" android:exported="false"/>
+
         <service
             android:name=".HeartRateService"
             android:exported="false"/>
+
+        <!-- 开机自启: BOOT_COMPLETED 为系统保护广播, 仅系统可发 -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+            </intent-filter>
+        </receiver>
 
         <!-- 检查更新: 共享下载的APK给系统安装器 -->
         <provider

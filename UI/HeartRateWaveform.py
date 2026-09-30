@@ -103,9 +103,9 @@ class HeartRateWaveform(QWidget):
     def add_heart_rate(self, heart_rate):
         """
         添加新的心率数据
-        
-        Args:
-            heart_rate: 心率值（BPM）
+        heart_rate>0: 正常数据点
+        heart_rate<=0: 断流心跳——屏上还有历史波形时, 每秒滚动一格断点(示波器式),
+        波形持续左移直至历史点全部滚出后自动静止(空图不重绘, 节省CPU)
         """
         if heart_rate > 0:  # 只添加有效数据
             # 添加新数据
@@ -115,15 +115,22 @@ class HeartRateWaveform(QWidget):
                 self.timestamps.append(self.timestamps[-1] + 1)
             else:
                 self.timestamps.append(0)
-            
+
             # 更新图表
+            self.update_plot()
+        elif any(v > 0 for v in self.heart_rates):  # 屏上有历史波形才开始滚动
+            self.heart_rates.append(0)  # 0=断点, update_plot中以NaN断线
+            if len(self.timestamps) > 0:
+                self.timestamps.append(self.timestamps[-1] + 1)
+            else:
+                self.timestamps.append(0)
             self.update_plot()
     
     def update_plot(self):
         """更新波形图"""
-        # 准备数据
+        # 准备数据(0/负值=断点, 用NaN断线; matplotlib对NaN不绘制不填充)
         x_data = list(range(len(self.heart_rates)))
-        y_data = list(self.heart_rates)
+        y_data = [v if v > 0 else np.nan for v in self.heart_rates]
         
         # 更新线条数据
         self.line.set_data(x_data, y_data)

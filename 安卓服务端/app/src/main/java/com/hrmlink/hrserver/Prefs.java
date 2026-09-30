@@ -21,11 +21,17 @@ public final class Prefs {
 
     // ---- 数据服务（对应 EXE [Tailscale] 节）----
     public static final String SRV_ENABLED = "srv_enabled";   // 数据服务总开关, 默认 true
-    public static final String SRV_ADDRESS = "srv_address";   // "auto"=自动探测Tailscale IP, 或手填IP
+    public static final String SRV_ADDRESS = "srv_address";   // "auto"=绑0.0.0.0(LAN/Tailscale双通), 或手填IP
     public static final String SRV_PORT = "srv_port";         // 默认 8765
+
+    // ---- [Camera] 摄像头 ----
+    public static final String CAMERAS_JSON = "cameras_json"; // [{"name":"主卧","url":"rtsp://.../stream2","alarm_enabled":true,"is_default":true}]
+    public static final String CAMERA_ENABLED = "camera_enabled"; // 摄像头链路总开关, 默认 false（无 ffmpeg/无配置时保持关闭）
 
     // ---- [Push] 告警规则 ----
     public static final String LOCAL_ALARM_ENABLED = "local_alarm_enabled";        // 心率告警本地响铃开关, 默认true
+    public static final String REMOTE_ALARM_ENABLED = "alarm_remote_enabled";      // 远程报警(接收端响铃)开关, 默认true
+    public static final String ALARM_SECONDS = "alarm_seconds";                    // 报警窗口秒数(到期自动复位), 默认10
     public static final String PUSH_MAX_HR = "push_max_hr";                        // 上限, 0=不检测, 默认150
     public static final String PUSH_MIN_HR = "push_min_hr";                        // 下限, 0=不检测, 默认45
     public static final String PUSH_ABNORMAL_DURATION = "push_abnormal_duration";  // 超限持续秒数, 默认600
@@ -75,8 +81,52 @@ public final class Prefs {
     public static final String MQTT_DISCOVERY_TOPIC = "mqtt_discovery_topic";  // 默认 homeassistant/sensor/heartrate/config
     public static final String MQTT_DISCOVERY_ENABLED = "mqtt_discovery_enabled"; // 默认 true
 
+    // ---- [ESP32 中继中枢] RelayHub(对齐 EXE config.ini [esp32_relay]) ----
+    public static final String RELAY_ENABLED = "relay_enabled";              // 中继中枢开关, 默认 false
+    public static final String RELAY_TOKEN = "relay_token";                  // /relay WS令牌, 默认 HRMLink-ESP32-2025
+    public static final String RELAY_THRESHOLD_DROP = "relay_threshold_drop";// 切换阈值(dBm), 默认-75
+    public static final String RELAY_HYSTERESIS_DB = "relay_hysteresis_db";  // 切换迟滞dB, 默认10
+    public static final String RELAY_MIN_RSSI = "relay_min_rssi";            // 最低可连RSSI, 默认-80
+    public static final String RELAY_STALE_SECONDS = "relay_stale_seconds";  // 接管判定秒数, 默认30
+    public static final String RELAY_FREEZE_CYCLES = "relay_freeze_cycles";  // 切换判定周期数, 默认3
+    public static final String RELAY_NODE_BIASES = "relay_node_biases";      // 节点偏差JSON(信号标定, P1仅存储不标定)
+    public static final String ROOM_CAMERA_MAP = "room_camera_map";          // 报警房间→摄像头绑定JSON{节点名:相机名}, 空=全用默认相机
+
+    // ---- 大屏显示(设置→大屏显示组, 即改即生效; 对应 ui_preview.html 定稿) ----
+    public static final String UI_CARD_BAND = "ui_card_band";      // 底部卡片: 手环
+    public static final String UI_CARD_WS = "ui_card_ws";          // 底部卡片: WS客户端
+    public static final String UI_CARD_TS = "ui_card_tailscale";   // 底部卡片: Tailscale
+    public static final String UI_CARD_MQTT = "ui_card_mqtt";      // 底部卡片: MQTT
+    public static final String UI_CARD_INFLUX = "ui_card_influx";  // 底部卡片: InfluxDB
+    public static final String UI_CARD_CAM = "ui_card_cam";        // 底部卡片: 摄像头
+    public static final String UI_CARD_RELAY = "ui_card_relay";    // 底部卡片: 中继节点
+    public static final String UI_HR_SIZE = "ui_hr_size";          // 心率数字字号 sp, 默认150
+    public static final String UI_HEART_ICON = "ui_heart_icon";    // 心形图标显隐
+    public static final String UI_MINICAM = "ui_minicam";          // 小块视频口显隐
+    public static final String UI_SRC_ROW = "ui_src_row";          // 数据源角标行显隐
+
+    // ---- 摄像头细节(设置→摄像头组; 真机联调后逐步接线) ----
+    public static final String CLIP_HD_ENABLED = "clip_hd_enabled"; // 高清剪辑开关(主码流剪辑; 多路限1-2路提示)
+    public static final String LIVE_STREAM = "live_stream";         // 默认拉流码流: sub=子码流(推荐)/main=主码流, 对齐 stream_manager
+    public static final String DETECT_MODE = "detect_mode";         // 侦测方式: frame_diff(当前P2)/onvif_event/npu_human(预留)
+
+    // ---- 存档(设置→存储组; 每项独立启用+位置, 未挂载U盘自动回退板载仅对新文件生效) ----
+    public static final String ARCH_CLIP_ENABLED = "arch_clip_enabled";      // 报警剪辑存档
+    public static final String ARCH_CSV_ENABLED = "arch_csv_enabled";        // 心率CSV日志存档
+    public static final String ARCH_PUSHLOG_ENABLED = "arch_pushlog_enabled";// 推送记录存档
+    public static final String CLIP_STORAGE = "clip_storage";                // internal/usb
+    public static final String CSV_STORAGE = "csv_storage";
+    public static final String PUSHLOG_STORAGE = "pushlog_storage";
+    public static final String CSV_RETENTION_DAYS = "csv_retention_days";    // CSV保留天数, 默认30
+
     private Prefs() {
     }
+
+    // ---- 参数同步(与 EXE 双向, 对齐 HRMLink功能业务逻辑梳理.md §6.5) ----
+    public static final String SETTINGS_REV = "settings_rev";   // 配置版本号: 本地改动批次+1, LWW 仲裁用
+    public static final String SYNC_TS = "sync_ts";             // 本端生效配置时间戳ms(字符串存), 同 rev 决胜
+    public static final String SYNC_TOKEN = "sync_token";       // 同步令牌, 两端 config 各存同值(Bearer 鉴权)
+    public static final String SYNC_PUSHED_JSON = "sync_pushed_json"; // 最后生效快照基线(差分检测本地改动)
 
     public static SharedPreferences sp(Context c) {
         return c.getApplicationContext().getSharedPreferences(FILE, Context.MODE_PRIVATE);
